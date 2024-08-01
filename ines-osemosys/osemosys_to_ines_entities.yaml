@@ -1,0 +1,37 @@
+# source_entity_class: target_entity_class OR
+# source_entity_class: 
+#  list of target_entity_classes: 
+#    optional [list  of dimenstion positions] OR
+#    optional [list of dimension positions, [optional] {source_feature: source_method} or source_feature]
+REGION: set 
+# emission:    Needs region to distuingish from other nodes
+# fuel:        Same
+# storage:     Same
+# technology:  Same
+# region__emission:   needs to be converted manually, since emissions in ines-spec are hard-coded
+YEAR: period
+REGION__FUEL: 
+  - node: [[1, 2]]
+  - set__node: [[1], [1, 2]]
+REGION__REGION__FUEL:
+  - link: [[1, 3, 2]]
+  - node__link__node: [[1, 3], [1, 3, 2], [2, 3]]
+REGION__STORAGE:
+  - node: [[1, 2]]
+  - set__node: [[1], [1, 2]]
+REGION__TECHNOLOGY:
+  - unit: [[1, 2]]
+  - set__unit: [[1], [1, 2]]
+REGION__TECHNOLOGY__FUEL:
+  - unit__to_node: [[1, 2], [1, 3], OutputActivityRatio]
+  - node__to_unit: [[1, 3], [1, 2], InputActivityRatio]
+REGION__TECHNOLOGY__STORAGE:
+  - node: [[1, 3]]
+  - set__node: [[1], [1, 3]]
+  - unit__to_node: [[1, 2], [1, 3], TechnologyToStorage]
+  - node__to_unit: [[1, 3], [1, 2], TechnologyFromStorage]
+  
+
+#region__technology__emission:   needs to be converted manually, since emissions in ines-spec are hard-coded
+#region__technology__fuel:       needs to be converted manually to separate input/output and node__to_unit/unit__to_node
+#region__technology__storage:    needs to be converted manually to separate fromStorage/toStorage and node__to_unit/unit__to_node
