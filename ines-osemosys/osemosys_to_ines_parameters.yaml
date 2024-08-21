@@ -11,7 +11,7 @@ REGION__TECHNOLOGY:
 #  unit__to_node:
 REGION__FUEL:
   node:
-    AccumulatedAnnualDemand: [flow_annual, 277777.78, [[1, 2]]]
+    AccumulatedAnnualDemand: [flow_annual, -277777.78, [[1, 2]]]
     SpecifiedAnnualDemand: [flow_annual, 277777.78, [[1, 2]]]
 REGION__STORAGE:
   node:

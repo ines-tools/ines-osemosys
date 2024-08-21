@@ -14,11 +14,11 @@ from dateutil.relativedelta import relativedelta
 if len(sys.argv) > 1:
     url_db_in = sys.argv[1]
 else:
-    url_db_in = "sqlite:///C:/data/Spine/ines-osemosys/data/OSeMOSYS_db.sqlite"
+    url_db_in = "sqlite:///OSeMOSYS_db.sqlite"
 if len(sys.argv) > 2:
     url_db_out = sys.argv[2]
 else:
-    url_db_out = "sqlite:///C:/data/Spine/ines-osemosys/data/ines-spec.sqlite"
+    url_db_out = "sqlite:///ines-spec.sqlite"
 
 with open('osemosys_to_ines_entities.yaml', 'r') as file:
     entities_to_copy = yaml.load(file, yaml.BaseLoader)
@@ -32,6 +32,7 @@ with open('settings.yaml', 'r') as file:
     settings = yaml.safe_load(file)
 unlimited_unit_capacity = float(settings["unlimited_unit_capacity"])
 default_unit_size = float(settings["default_unit_size"])
+unit_to_penalty_boundary = float(settings["unit_to_penalty_boundary"])
 
 def main():
     with DatabaseMapping(url_db_in) as source_db:
@@ -272,16 +273,16 @@ def process_timeslice_data(source_db, target_db):
         year_split_data = api.from_database(year_split["value"], year_split["type"])
         target_db = add_timeslice_data(source_db, target_db, year_split_data, year_split["alternative_name"],
                                        "REGION__FUEL", "SpecifiedDemandProfile", "node", "flow_profile",
-                                       timeslice_indexes, datetime_indexes, -1.0)
+                                       timeslice_indexes, datetime_indexes, -1.0, True)
         target_db = add_timeslice_data(source_db, target_db, year_split_data, year_split["alternative_name"],
                                        "REGION__TECHNOLOGY", "CapacityFactor", "unit", "availability",
-                                       timeslice_indexes, datetime_indexes, 1.0)
+                                       timeslice_indexes, datetime_indexes, 1.0, False)
     return target_db
 
 
 def add_timeslice_data(source_db, target_db, year_split_data, alternative_name, source_class_name,
                        source_param_name, target_class_name, target_param_name, timeslice_indexes, datetime_indexes,
-                       multiplier):
+                       multiplier, scale_with_time):
     for source_class in source_db.get_entity_items(entity_class_name=source_class_name):
         for source_params in source_db.get_parameter_value_items(entity_class_name=source_class_name,
                                                                  entity_name=source_class["name"],
@@ -292,9 +293,13 @@ def add_timeslice_data(source_db, target_db, year_split_data, alternative_name, 
             # profile_timeslice_indexes = []
             for s, profile_data_by_slices in enumerate(profile_data.values):
                 # for y, profile_data_by_slices_by_year in enumerate(profile_data_by_slices.values):
-                timeslice_profiles[profile_data.indexes[s]] = multiplier * \
-                                                              round(float(profile_data_by_slices.values[0]) /  # Note that this takes the first value from the array of years (first year)
-                                                                    float(year_split_data.values[s].values[0]), 6)
+                if scale_with_time:
+                    timeslice_profiles[profile_data.indexes[s]] = multiplier * \
+                                                                  round(float(profile_data_by_slices.values[0]) /  # Note that this takes the first value from the array of years (first year)
+                                                                        float(year_split_data.values[s].values[0]), 6)
+                else:
+                    timeslice_profiles[profile_data.indexes[s]] = multiplier * \
+                                                                  round(float(profile_data_by_slices.values[0]), 6)  # Note that this takes the first value from the array of years (first year)
                 # profile_timeslice_indexes.append(profile_data.indexes[s])
             datetime_profiles = []
             for t, timeslice_index in enumerate(timeslice_indexes):
@@ -370,7 +375,6 @@ def process_capacities(source_db, target_db, unit_capacity):
                             exit("InputActivityRatio and/or OutputActivityRatio contain inconsistent YEAR indexes for " and rtf_ent["name"])
                     act_indexes = input_map_object.indexes
         if output_act_params:
-            output_names.append(rtf_ent["entity_byname"])
             for param in output_act_params:
                 mode_map_objects = api.from_database(param["value"], "map")
                 for k, output_map_object in enumerate(mode_map_objects.values):
@@ -380,7 +384,6 @@ def process_capacities(source_db, target_db, unit_capacity):
                             exit("InputActivityRatio and/or OutputActivityRatio contain inconsistent YEAR indexes")
                     act_indexes = output_map_object.indexes
 
-        conversion_method = "constant_efficiency"
         if len(input_act_ratio) == 1 and len(output_act_ratio) == 1:
             for alt_i, iar in input_act_ratio[0].items():
                 for alt_o, oar in output_act_ratio[0].items():
@@ -394,13 +397,13 @@ def process_capacities(source_db, target_db, unit_capacity):
                 alt_ent_class = (alt_o, (unit_source["name"],), "unit")
                 #output_map_object.values = oar
                 #target_db = ines_transform.add_item_to_DB(target_db, "efficiency", alt_ent_class, output_map_object)
-                target_db = ines_transform.add_item_to_DB(target_db, "efficiency", alt_ent_class, oar[0])
+                #target_db = ines_transform.add_item_to_DB(target_db, "efficiency", alt_ent_class, oar[0])
         elif len(input_act_ratio) == 1 and len(output_act_ratio) == 0:
             for alt_i, iar in input_act_ratio[0].items():
                 alt_ent_class = (alt_i, (unit_source["name"],), "unit")
                 #input_map_object.values = 1 / iar
                 #target_db = ines_transform.add_item_to_DB(target_db, "efficiency", alt_ent_class, input_map_object)
-                target_db = ines_transform.add_item_to_DB(target_db, "efficiency", alt_ent_class, 1 / iar[0])
+                #target_db = ines_transform.add_item_to_DB(target_db, "efficiency", alt_ent_class, 1 / iar[0])
         elif len(input_act_ratio) == 0 and len(output_act_ratio) == 0:
             exit("No InputActivityRatio nor OutputActivityRatio defined for " + unit_source["name"])
         else:
@@ -486,6 +489,9 @@ def process_capacities(source_db, target_db, unit_capacity):
             capacity_value = 1000 / source_param.values[0]
             alt_ent_class = (alt_activity, entity_byname, class_name)
             target_db = ines_transform.add_item_to_DB(target_db, "capacity", alt_ent_class, capacity_value)
+            flag_allow_investments = False
+            alt_inv_cost = alt_activity
+            alt_fixed_cost = alt_activity
             for source_param in source_unit_investment_cost:
                 alt = alternative_name_from_two(source_param["alternative_name"], alt_activity)
                 source_param = api.from_database(source_param["value"], "map")
@@ -499,18 +505,9 @@ def process_capacities(source_db, target_db, unit_capacity):
                     unit_byname = (entity_byname[1],)
                 if max(source_param.values) > 0 and min(source_param.values) == 0.0:
                     exit("Investment cost 0 for some years and above 0 for others - don't know how to handle")
-                elif max(source_param.values) > 0:
-                    p_value, p_type = api.to_database("no_limits")
-                elif max(source_param.values) == 0:
-                    p_value, p_type = api.to_database("not_allowed")
-                added, error = target_db.add_parameter_value_item(entity_class_name="unit",
-                                                                  entity_byname=unit_byname,
-                                                                  parameter_definition_name="investment_method",
-                                                                  alternative_name=alt,
-                                                                  value=p_value,
-                                                                  type=p_type)
-                if error:
-                    exit("error in trying to add investment_method: " + error)
+                if min(source_param.values) > 0:
+                    flag_allow_investments = True
+                    alt_inv_cost = alt_activity
             for source_param in source_unit_fixed_cost:
                 alt = alternative_name_from_two(source_param["alternative_name"], alt_activity)
                 source_param = api.from_database(source_param["value"], "map")
@@ -518,11 +515,29 @@ def process_capacities(source_db, target_db, unit_capacity):
                 source_param.index_name = "period"
                 alt_ent_class = (alt, entity_byname, class_name)
                 target_db = ines_transform.add_item_to_DB(target_db, "fixed_cost", alt_ent_class, source_param)
+                if max(source_param.values) > 0 and min(source_param.values) == 0.0:
+                    exit("Fixed cost 0 for some years and above 0 for others - don't know how to handle")
+                if min(source_param.values) > 0:
+                    flag_allow_investments = True
+                    alt_fixed_cost = alt_activity
+            if flag_allow_investments:
+                p_value, p_type = api.to_database("no_limits")
+            else:
+                p_value, p_type = api.to_database("not_allowed")
+            alt = alternative_name_from_two(alt_inv_cost, alt_fixed_cost)
+            added, error = target_db.add_parameter_value_item(entity_class_name="unit",
+                                                              entity_byname=unit_byname,
+                                                              parameter_definition_name="investment_method",
+                                                              alternative_name=alt,  # This is not really satisfactory, if there are values across different alternatives. Tries to do something, but it's shaky.
+                                                              value=p_value,
+                                                              type=p_type)
+            if error:
+                exit("error in trying to add investment_method: " + error)
             for source_param in source_unit_variable_cost:
                 alt = alternative_name_from_two(source_param["alternative_name"], alt_activity)
                 source_param = api.from_database(source_param["value"], "map")
                 if len(source_param) > 1:
-                    exit("More than one mode_of_operation with variable_cost defined. Can't handle that. Entity: " + entity_byname)
+                    exit("More than one mode_of_operation with variable_cost defined. Can't handle that. Entity: " + entity_name)
                 source_param = source_param.values[0]  # Bypass mode_of_operation dimension (assume there is only one)
                 source_param.values = [s * 3.6 / a for s, a in zip(source_param.values, act_ratio)]
                 source_param.index_name = "period"
@@ -635,86 +650,53 @@ def process_zero_investment_cost(source_db, target_db):
                                                                    entity_byname=unit["entity_byname"],
                                                                    alternative_name=alt["name"],
                                                                    parameter_definition_name="VariableCost")
-                if not variable_cost:
-                    print("Warning: unit " + unit["name"] + " does not have investment cost, existing capacity nor variable cost. Maybe not limited.")
-                    continue
                 p_value, p_type = api.to_database(unlimited_unit_capacity / default_unit_size)
                 added, updated, error = target_db.add_update_parameter_value_item(entity_class_name="unit",
-                                                                                  entity_byname=unit["entity_byname"],
+                                                                                  entity_byname=(unit["name"],),
                                                                                   alternative_name=alt["name"],
                                                                                   parameter_definition_name="existing_units",
                                                                                   type=p_type,
                                                                                   value=p_value)
                 if error:
                     exit("Failed to add existing capacity for a unit without investment cost or existing capacity: " + error)
-                added, updated, error = target_db.add_update_entity_alternative_item(entity_class_name="unit",
-                                                                                    entity_byname=(unit["name"], ),
-                                                                                    alternative_name=alt["name"],
-                                                                                    active=False)
-                if error:
-                   exit("Failed to update entity_alternative to unit without investment costs and capacity: " + error)
 
-                unit__nodes = source_db.get_entity_items(entity_class_name="REGION__TECHNOLOGY__FUEL")
-                flag_penalty = False
-                for unit__node in unit__nodes:
-                    if unit__node["entity_byname"][0:2] == unit["entity_byname"]:
-                        aa_demand = source_db.get_parameter_value_item(entity_class_name="REGION__FUEL",
-                                                                       entity_byname=(unit__node["entity_byname"][0], unit__node["entity_byname"][2]),
-                                                                       alternative_name=alt["name"],
-                                                                       parameter_definition_name="AccumulatedAnnualDemand")
-                        sa_demand = source_db.get_parameter_value_item(entity_class_name="REGION__FUEL",
-                                                                       entity_byname=(unit__node["entity_byname"][0], unit__node["entity_byname"][2]),
-                                                                       alternative_name=alt["name"],
-                                                                       parameter_definition_name="SpecifiedAnnualDemand")
-                        sp_demand = source_db.get_parameter_value_item(entity_class_name="REGION__FUEL",
-                                                                       entity_byname=(unit__node["entity_byname"][0], unit__node["entity_byname"][2]),
-                                                                       alternative_name=alt["name"],
-                                                                       parameter_definition_name="SpecifiedDemandProfile")
-                        if aa_demand or (sa_demand and sp_demand):
-                            flag_penalty = True
-
-                        oa_ratio = source_db.get_parameter_value_item(entity_class_name="REGION__TECHNOLOGY__FUEL",
-                                                                      entity_byname=unit__node["entity_byname"],
-                                                                      alternative_name=alt["name"],
-                                                                      parameter_definition_name="OutputActivityRatio")
-                        # output_activity_ratio =
-                        node_name = unit__node["entity_byname"][0] + "__" + unit__node["entity_byname"][2]
-                        # Ignore mode of operation and just take the output activity ratios
-                        oa_ratio_list = oa_ratio["parsed_value"].values[0].values
-                        variable_cost_list = variable_cost["parsed_value"].values[0].values
-                        commodity_price = [oa * var for oa, var in zip(oa_ratio_list, variable_cost_list)]
-                        commodity_price_map = api.Map(indexes=oa_ratio["parsed_value"].values[0].indexes,
-                                                      values=commodity_price,
-                                                      index_name="period")
-                        p_value, p_type = api.to_database(commodity_price_map)
-                        if flag_penalty:
+                if not variable_cost:
+                    print("Warning: unit " + unit["name"] + " does not have investment cost, existing capacity nor variable cost. Maybe not limited.")
+                    continue
+                variable_cost_list = variable_cost["parsed_value"].values[0].values
+                # If unit has variable cost higher than the penalty boundary setting, then move the variable cost to penalty costs
+                if max(variable_cost_list) >= unit_to_penalty_boundary:
+                    added, updated, error = target_db.add_update_entity_alternative_item(entity_class_name="unit",
+                                                                                         entity_byname=(unit["name"],),
+                                                                                         alternative_name=alt["name"],
+                                                                                         active=False)
+                    if error:
+                        exit("Failed to inactivate unit that was being turned into node penalty cost: " + error)
+                    unit__nodes = source_db.get_entity_items(entity_class_name="REGION__TECHNOLOGY__FUEL")
+                    for unit__node in unit__nodes:
+                        if unit__node["entity_byname"][0:2] == unit["entity_byname"]:
+                            oa_ratio = source_db.get_parameter_value_item(entity_class_name="REGION__TECHNOLOGY__FUEL",
+                                                                          entity_byname=unit__node["entity_byname"],
+                                                                          alternative_name=alt["name"],
+                                                                          parameter_definition_name="OutputActivityRatio")
+                            # output_activity_ratio =
+                            node_name = unit__node["entity_byname"][0] + "__" + unit__node["entity_byname"][2]
+                            # Ignore mode of operation and just take the output activity ratios
+                            oa_ratio_list = oa_ratio["parsed_value"].values[0].values
+                            penalty_up = [oa * var for oa, var in zip(oa_ratio_list, variable_cost_list)]
+                            penalty_up_map = api.Map(indexes=oa_ratio["parsed_value"].values[0].indexes,
+                                                          values=penalty_up,
+                                                          index_name="period")
+                            p_value, p_type = api.to_database(penalty_up_map)
                             added, updated, error = target_db.add_update_parameter_value_item(entity_class_name="node",
-                                                                                              entity_byname=(node_name, ),
+                                                                                              entity_byname=(node_name,),
                                                                                               alternative_name=alt["name"],
                                                                                               parameter_definition_name="penalty_upward",
                                                                                               type=p_type,
                                                                                               value=p_value)
                             if error:
-                                exit("Failed to add penalty price based on the variable cost of a unit without investment cost or existing capacity but node with demand: " + error)
-                        else:
-                            added, updated, error = target_db.add_update_parameter_value_item(entity_class_name="node",
-                                                                                              entity_byname=(node_name,),
-                                                                                              alternative_name=alt["name"],
-                                                                                              parameter_definition_name="commodity_price",
-                                                                                              type=p_type,
-                                                                                              value=p_value)
-                            if error:
-                                exit("Failed to add commodity price based on the variable cost of a unit without investment cost or existing capacity: " + error)
-                            p_value, p_type = api.to_database("commodity")
-                            added, updated, error = target_db.add_update_parameter_value_item(entity_class_name="node",
-                                                                                              entity_byname=(node_name, ),
-                                                                                              alternative_name=alt["name"],
-                                                                                              parameter_definition_name="node_type",
-                                                                                              type=p_type,
-                                                                                              value=p_value)
-                            if error:
-                                exit("Failed to add node type commodity based on the variable cost of a unit without investment cost or existing capacity: " + error)
-
+                                exit(
+                                    "Failed to add penalty price based on the variable cost of a unit without investment cost or existing capacity but node with demand: " + error)
     try:
         target_db.commit_session("Inactivated units without investment costs and existing capacity. Instead use commodity price of the node")
     except:
