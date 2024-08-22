@@ -345,7 +345,7 @@ def process_capacities(source_db, target_db, unit_capacity):
             param_map.values = [x * 1000 / unit_capacity for x in param_map.values]
             alt_ent_class = (param["alternative_name"], (unit_source["name"],), "unit")
             target_db = ines_transform.add_item_to_DB(target_db, "units_max_cumulative", alt_ent_class, param_map)
-        source_unit_total_min = source_db.get_parameter_value_items(entity_class_name="REGION__TECHNOLOGY", entity_name=unit_source["name"], parameter_definition_name="TotalAnnualMaxCapacity")
+        source_unit_total_min = source_db.get_parameter_value_items(entity_class_name="REGION__TECHNOLOGY", entity_name=unit_source["name"], parameter_definition_name="TotalAnnualMinCapacity")
         for param in source_unit_total_min:
             param_map = api.from_database(param["value"], "map")
             param_map.values = [x * 1000 / unit_capacity for x in param_map.values]
