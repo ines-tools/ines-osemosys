@@ -18,5 +18,5 @@ REGION__STORAGE:
     CapitalCostStorage: [storage_investment_cost, 0.114155, [[1,2]]]
     DiscountRateStorage: [storage_interest_rate, 1, [[1,2]]]
     OperationalLifeStorage: [storage_lifetime, 1, [[1,2]]]
-    ResidualStorageCapacity: [existing_storages, 8.76, [[1,2]]]
+    ResidualStorageCapacity: [storages_existing, 8.76, [[1,2]]]
 

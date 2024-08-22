@@ -332,13 +332,25 @@ def process_capacities(source_db, target_db, unit_capacity):
     region__tech__fuel_entities = source_db.get_entity_items(entity_class_name="REGION__TECHNOLOGY__FUEL")
     for unit_source in source_db.get_entity_items(entity_class_name="REGION__TECHNOLOGY"):
 
-        # Store parameter existing_units (for the alternatives that define it)
+        # Store parameter units_existing (for the alternatives that define it)
         source_unit_residual_capacity = source_db.get_parameter_value_items(entity_class_name="REGION__TECHNOLOGY", entity_name=unit_source["name"], parameter_definition_name="ResidualCapacity")
         for param in source_unit_residual_capacity:
             param_map = api.from_database(param["value"], "map")
             param_map.values = [x * 1000 / unit_capacity for x in param_map.values]
             alt_ent_class = (param["alternative_name"], (unit_source["name"],), "unit")
-            target_db = ines_transform.add_item_to_DB(target_db, "existing_units", alt_ent_class, param_map)
+            target_db = ines_transform.add_item_to_DB(target_db, "units_existing", alt_ent_class, param_map)
+        source_unit_total_max = source_db.get_parameter_value_items(entity_class_name="REGION__TECHNOLOGY", entity_name=unit_source["name"], parameter_definition_name="TotalAnnualMaxCapacity")
+        for param in source_unit_total_max:
+            param_map = api.from_database(param["value"], "map")
+            param_map.values = [x * 1000 / unit_capacity for x in param_map.values]
+            alt_ent_class = (param["alternative_name"], (unit_source["name"],), "unit")
+            target_db = ines_transform.add_item_to_DB(target_db, "units_max_cumulative", alt_ent_class, param_map)
+        source_unit_total_min = source_db.get_parameter_value_items(entity_class_name="REGION__TECHNOLOGY", entity_name=unit_source["name"], parameter_definition_name="TotalAnnualMaxCapacity")
+        for param in source_unit_total_min:
+            param_map = api.from_database(param["value"], "map")
+            param_map.values = [x * 1000 / unit_capacity for x in param_map.values]
+            alt_ent_class = (param["alternative_name"], (unit_source["name"],), "unit")
+            target_db = ines_transform.add_item_to_DB(target_db, "units_min_cumulative", alt_ent_class, param_map)
 
         source_unit_investment_cost = source_db.get_parameter_value_items(entity_class_name="REGION__TECHNOLOGY", entity_name=unit_source["name"], parameter_definition_name="CapitalCost")
         source_unit_fixed_cost = source_db.get_parameter_value_items(entity_class_name="REGION__TECHNOLOGY", entity_name=unit_source["name"], parameter_definition_name="FixedCost")
@@ -654,7 +666,7 @@ def process_zero_investment_cost(source_db, target_db):
                 added, updated, error = target_db.add_update_parameter_value_item(entity_class_name="unit",
                                                                                   entity_byname=(unit["name"],),
                                                                                   alternative_name=alt["name"],
-                                                                                  parameter_definition_name="existing_units",
+                                                                                  parameter_definition_name="units_existing",
                                                                                   type=p_type,
                                                                                   value=p_value)
                 if error:
