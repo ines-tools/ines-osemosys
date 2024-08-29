@@ -333,6 +333,7 @@ def process_capacities(source_db, target_db, unit_capacity):
     for unit_source in source_db.get_entity_items(entity_class_name="REGION__TECHNOLOGY"):
 
         # Store parameter units_existing (for the alternatives that define it)
+        flag_limit_cumulative_investments = False
         source_unit_residual_capacity = source_db.get_parameter_value_items(entity_class_name="REGION__TECHNOLOGY", entity_name=unit_source["name"], parameter_definition_name="ResidualCapacity")
         for param in source_unit_residual_capacity:
             param_map = api.from_database(param["value"], "map")
@@ -345,12 +346,14 @@ def process_capacities(source_db, target_db, unit_capacity):
             param_map.values = [x * 1000 / unit_capacity for x in param_map.values]
             alt_ent_class = (param["alternative_name"], (unit_source["name"],), "unit")
             target_db = ines_transform.add_item_to_DB(target_db, "units_max_cumulative", alt_ent_class, param_map)
+            flag_limit_cumulative_investments = True
         source_unit_total_min = source_db.get_parameter_value_items(entity_class_name="REGION__TECHNOLOGY", entity_name=unit_source["name"], parameter_definition_name="TotalAnnualMinCapacity")
         for param in source_unit_total_min:
             param_map = api.from_database(param["value"], "map")
             param_map.values = [x * 1000 / unit_capacity for x in param_map.values]
             alt_ent_class = (param["alternative_name"], (unit_source["name"],), "unit")
             target_db = ines_transform.add_item_to_DB(target_db, "units_min_cumulative", alt_ent_class, param_map)
+            flag_limit_cumulative_investments = True
 
         source_unit_investment_cost = source_db.get_parameter_value_items(entity_class_name="REGION__TECHNOLOGY", entity_name=unit_source["name"], parameter_definition_name="CapitalCost")
         source_unit_fixed_cost = source_db.get_parameter_value_items(entity_class_name="REGION__TECHNOLOGY", entity_name=unit_source["name"], parameter_definition_name="FixedCost")
@@ -533,7 +536,10 @@ def process_capacities(source_db, target_db, unit_capacity):
                     flag_allow_investments = True
                     alt_fixed_cost = alt_activity
             if flag_allow_investments:
-                p_value, p_type = api.to_database("no_limits")
+                if flag_limit_cumulative_investments:
+                    p_value, p_type = api.to_database("cumulative_limits")
+                else:
+                    p_value, p_type = api.to_database("no_limits")
             else:
                 p_value, p_type = api.to_database("not_allowed")
             alt = alternative_name_from_two(alt_inv_cost, alt_fixed_cost)
