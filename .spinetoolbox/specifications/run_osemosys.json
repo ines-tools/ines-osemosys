@@ -1,0 +1,24 @@
+{
+    "name": "run_OSeMOSYS3",
+    "tooltype": "executable",
+    "includes": [
+        "glpsol.exe",
+        "glpk_4_61.dll"
+    ],
+    "description": "",
+    "inputfiles": [
+        "model.dat",
+        "model.mod"
+    ],
+    "inputfiles_opt": [],
+    "outputfiles": [
+        "results/*.csv"
+    ],
+    "cmdline_args": [
+        "-m",
+        "model.mod",
+        "-d",
+        "model_new.dat"
+    ],
+    "includes_main_path": "../../.."
+}

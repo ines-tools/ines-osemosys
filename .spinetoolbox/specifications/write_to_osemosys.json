@@ -1,0 +1,17 @@
+{
+    "name": "write_to_OSeMOSYS",
+    "tooltype": "python",
+    "includes": [
+        "write_mathprog_model_data.py"
+    ],
+    "description": "",
+    "inputfiles": [
+        "param_dimens.yaml"
+    ],
+    "inputfiles_opt": [],
+    "outputfiles": [
+        "model_new.dat"
+    ],
+    "cmdline_args": [],
+    "includes_main_path": "../../../../ines-tools/ines_tools/tool_specific/mathprog"
+}

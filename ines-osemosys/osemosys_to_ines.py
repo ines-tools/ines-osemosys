@@ -9,16 +9,17 @@ from sys import exit
 import yaml
 import itertools
 import datetime
+import time
 from dateutil.relativedelta import relativedelta
 
 if len(sys.argv) > 1:
     url_db_in = sys.argv[1]
 else:
-    url_db_in = "sqlite:///OSeMOSYS_db.sqlite"
+    exit("Please provide input database url and output database url as arguments. They should be of the form ""sqlite:///path/db_file.sqlite""")
 if len(sys.argv) > 2:
     url_db_out = sys.argv[2]
 else:
-    url_db_out = "sqlite:///ines-spec.sqlite"
+    exit("Please provide input database url and output database url as arguments. They should be of the form ""sqlite:///path/db_file.sqlite""")
 
 with open('osemosys_to_ines_entities.yaml', 'r') as file:
     entities_to_copy = yaml.load(file, yaml.BaseLoader)
@@ -49,6 +50,16 @@ def main():
             #target_db.purge_items('parameter_value_list')
             target_db.refresh_session()
             target_db.commit_session("Purged stuff")
+
+            # start = time.process_time()
+            source_db.fetch_all('entity_class')
+            # print(time.process_time() - start)
+            # start = time.process_time()
+            source_db.fetch_all('entity')
+            # print(time.process_time() - start)
+            # start = time.process_time()
+            source_db.fetch_all('parameter_value')
+            # print(time.process_time() - start)
             ## Copy scenarios alternatives
             for alternative in source_db.get_alternative_items():
                 target_db.add_alternative_item(name=alternative["name"])
@@ -402,7 +413,7 @@ def process_capacities(source_db, target_db, unit_capacity):
         if len(input_act_ratio) == 1 and len(output_act_ratio) == 1:
             for alt_i, iar in input_act_ratio[0].items():
                 for alt_o, oar in output_act_ratio[0].items():
-                    alt = alternative_name_from_two(alt_i, alt_o)
+                    alt = alternative_name_from_two(alt_i, alt_o, target_db)
                     #output_map_object.values = [o / i for o, i in zip(oar, iar)]
                     alt_ent_class = (alt, (unit_source["name"],), "unit")
                     #target_db = ines_transform.add_item_to_DB(target_db, "efficiency", alt_ent_class, output_map_object)
@@ -475,7 +486,7 @@ def process_capacities(source_db, target_db, unit_capacity):
                                 target_db.add_entity_item(entity_class_name="unit_flow__unit_flow", entity_byname=ent_byname)
                                 fix_ratio = [round(o2 / o1, 6) for o2, o1 in zip(out[alto], output_1)]
                                 output_map_object.values = fix_ratio
-                                alt = alternative_name_from_two(alt_1, alto)
+                                alt = alternative_name_from_two(alt_1, alto, target_db)
                                 alt_ent_class = (alt, ent_byname, "unit_flow__unit_flow")
                                 target_db = ines_transform.add_item_to_DB(target_db, "equality_ratio", alt_ent_class, output_map_object)
                         output_1 = out[alto]
@@ -496,6 +507,8 @@ def process_capacities(source_db, target_db, unit_capacity):
         else:
             exit("Not handling multiple inputs together with multiple outputs. Error in entity: " + unit_source["name"])
 
+        if len(act_ratio_dict) > 1:
+            exit("There are more than one alternative value for input / output activity_ratio parameters - that is not handled. Unit: " + unit_source["name"])
         for alt_activity, act_ratio in act_ratio_dict.items():
             source_param = api.from_database(act_param["value"], "map")
             source_param = source_param.values[0]  # Drop mode_of_operation dimension (assuming there is only one)
@@ -508,7 +521,9 @@ def process_capacities(source_db, target_db, unit_capacity):
             alt_inv_cost = alt_activity
             alt_fixed_cost = alt_activity
             for source_param in source_unit_investment_cost:
-                alt = alternative_name_from_two(source_param["alternative_name"], alt_activity)
+                # Not doing this, since it's messy, instead exiting above if more than one act_ratio_dict:
+                # alt = alternative_name_from_two(source_param["alternative_name"], alt_activity, target_db)
+                alt = source_param["alternative_name"]
                 source_param = api.from_database(source_param["value"], "map")
                 source_param.values = [s / a for s, a in zip(source_param.values, act_ratio)]
                 source_param.index_name = "period"
@@ -524,7 +539,9 @@ def process_capacities(source_db, target_db, unit_capacity):
                     flag_allow_investments = True
                     alt_inv_cost = alt_activity
             for source_param in source_unit_fixed_cost:
-                alt = alternative_name_from_two(source_param["alternative_name"], alt_activity)
+                # Not doing this, since it's messy, instead exiting above if more than one act_ratio_dict:
+                # alt = alternative_name_from_two(source_param["alternative_name"], alt_activity, target_db)
+                alt = source_param["alternative_name"]
                 source_param = api.from_database(source_param["value"], "map")
                 source_param.values = [s / a for s, a in zip(source_param.values, act_ratio)]
                 source_param.index_name = "period"
@@ -542,7 +559,7 @@ def process_capacities(source_db, target_db, unit_capacity):
                     p_value, p_type = api.to_database("no_limits")
             else:
                 p_value, p_type = api.to_database("not_allowed")
-            alt = alternative_name_from_two(alt_inv_cost, alt_fixed_cost)
+            alt = alternative_name_from_two(alt_inv_cost, alt_fixed_cost, target_db)
             added, error = target_db.add_parameter_value_item(entity_class_name="unit",
                                                               entity_byname=unit_byname,
                                                               parameter_definition_name="investment_method",
@@ -552,10 +569,12 @@ def process_capacities(source_db, target_db, unit_capacity):
             if error:
                 exit("error in trying to add investment_method: " + error)
             for source_param in source_unit_variable_cost:
-                alt = alternative_name_from_two(source_param["alternative_name"], alt_activity)
+                # Not doing this, since it's messy, instead exiting above if more than one act_ratio_dict:
+                # alt = alternative_name_from_two(source_param["alternative_name"], alt_activity, target_db)
+                alt = source_param["alternative_name"]
                 source_param = api.from_database(source_param["value"], "map")
                 if len(source_param) > 1:
-                    exit("More than one mode_of_operation with variable_cost defined. Can't handle that. Entity: " + entity_name)
+                    exit("More than one mode_of_operation with variable_cost defined. Can't handle that. Entity: " + unit_byname)
                 source_param = source_param.values[0]  # Bypass mode_of_operation dimension (assume there is only one)
                 source_param.values = [s * 3.6 / a for s, a in zip(source_param.values, act_ratio)]
                 source_param.index_name = "period"
@@ -625,8 +644,19 @@ def process_model_level(source_db, target_db):
 def process_zero_investment_cost(source_db, target_db):
     units = source_db.get_entity_items(entity_class_name="REGION__TECHNOLOGY")
     alts = source_db.get_alternative_items()
+    # source_db.fetch_all("entity_alternative")
+    # unit_alternatives_all = source_db.get_entity_alternative_items(entity_class_name="TECHNOLOGY")
     for alt in alts:
         for unit in units:
+            # unit_alternatives = []
+            # for unit_alternative in unit_alternatives_all:
+            #     if unit_alternative["entity_byname"] == (unit["element_name_list"][1], ):
+            #         unit_alternatives.append(unit_alternative)
+            unit_alternatives = source_db.get_entity_alternative_items(entity_class_name="TECHNOLOGY",
+                                                                       entity_byname=(unit["element_name_list"][1], ))
+            if not any(unit_alt["alternative_name"] == alt["name"] and unit_alt["active"] is True for unit_alt in unit_alternatives):
+                continue
+
             flag_invest_zero = False
             flag_fixed_zero = False
             flag_existing_zero = False
@@ -679,7 +709,7 @@ def process_zero_investment_cost(source_db, target_db):
                     exit("Failed to add existing capacity for a unit without investment cost or existing capacity: " + error)
 
                 if not variable_cost:
-                    print("Warning: unit " + unit["name"] + " does not have investment cost, existing capacity nor variable cost. Maybe not limited.")
+                    print("Warning: unit " + unit["name"] + " does not have investment cost, existing capacity nor variable cost in alternative " + alt["name"] + ". Maybe not limited.")
                     continue
                 variable_cost_list = variable_cost["parsed_value"].values[0].values
                 # If unit has variable cost higher than the penalty boundary setting, then move the variable cost to penalty costs
@@ -751,11 +781,13 @@ def process_node_types(source_db, target_db):
         print("Failed to commit node_type balance_within_period on nodes with AccumulatedAnnualDemand")
     return target_db
 
-def alternative_name_from_two(alt_i, alt_o):
+
+def alternative_name_from_two(alt_i, alt_o, target_db):
     if alt_i == alt_o:
         alt = alt_i
     else:
         alt = alt_i + "__" + alt_o
+    target_db.add_update_alternative_item(name=alt)
     return alt
 
 if __name__ == "__main__":
