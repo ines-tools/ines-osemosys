@@ -6,10 +6,11 @@ This package converts an OSeMOSYS (version 2017_11_08) Spine Toolbox database (t
 
 This is an outline - content needs to be added
 
-- [Install Spine Toolbox from sources](https://github.com/spine-tools/Spine-Toolbox?tab=readme-ov-file#installation-from-sources-using-git)
+- [Install Spine Toolbox from sources](https://github.com/spine-tools/Spine-Toolbox?tab=readme-ov-file#installation-from-sources-using-git). This is to have an environment where both Spine Toolbox and ines-tools work. (pip install might also work, but this is safer)
 - Clone [ines-tools](https://github.com/energy-modelling-workbench/ines-tools) repository
 - Clone this ines-osemosys repository parallel to ines-tools (e.g. both under "data_conversions" folder)
-- Run Spine Toolbox, create a new Spine Toolbox project
+- If no yaml package in Python environment/path, add it through `pip install pyyaml` 
+- Run Spine Toolbox
 - Add source files to a 'Data connection' (model.mod, model.dat, and timeslices_to_time from examples folder (or your own data), settings_OSeMOSYS.yaml from ines-tools/ines_tools/tool_specific/mathprog)
 - Add the tools using 'Specifications' --> 'New specification' --> 'From specification file'
   - All OSeMOSYS specifications are in folder: "ines-osemosys/.spinetoolbox/specifications/"
