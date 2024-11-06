@@ -213,7 +213,7 @@ def process_timeslice_data(source_db, target_db):
     previous_time_duration = timeslice_to_time_data.values[0].values[0]
     for time_object in timeslice_to_time_data.values:
         timeslice_indexes.append(time_object.indexes[0])
-        time_durations.append(time_object.values[0])
+        time_durations.append(float(time_object.values[0]))
         #if previous_time_duration != time_object.values[0]:
             #exit("Variable time resolution not suppported, please make a timeslice to datetime mapping with only one time resolution (use the lowest common denominator)")
     # Store the model time resolution in ines_db
