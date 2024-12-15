@@ -1,6 +1,5 @@
 import spinedb_api as api
 from spinedb_api import DatabaseMapping
-from spinedb_api.helpers import Asterisk
 from ines_tools import ines_transform
 import numpy as np
 from sqlalchemy.exc import DBAPIError
@@ -9,7 +8,6 @@ from sys import exit
 import yaml
 import itertools
 import datetime
-import time
 from dateutil.relativedelta import relativedelta
 
 if len(sys.argv) > 1:
@@ -35,6 +33,7 @@ unlimited_unit_capacity = float(settings["unlimited_unit_capacity"])
 default_unit_size = float(settings["default_unit_size"])
 unit_to_penalty_boundary = float(settings["unit_to_penalty_boundary"])
 
+
 def main():
     with DatabaseMapping(url_db_in) as source_db:
         with DatabaseMapping(url_db_out, upgrade=True) as target_db:
@@ -45,9 +44,6 @@ def main():
             target_db.purge_items('scenario')
             target_db.purge_items('scenario_alternative')
             target_db.purge_items('entity_alternative')
-            #target_db.purge_items('parameter_definition')
-            #target_db.purge_items('entity_class')
-            #target_db.purge_items('parameter_value_list')
             target_db.refresh_session()
             target_db.commit_session("Purged stuff")
 
@@ -96,6 +92,7 @@ def main():
             target_db = process_zero_investment_cost(source_db, target_db)
             ## Assign node types
             target_db = process_node_types(source_db, target_db)
+
 
 def create_periods(source_db, target_db):
     models = source_db.get_entity_items(entity_class_name="model")
@@ -242,11 +239,11 @@ def process_timeslice_data(source_db, target_db):
     datetime_block_starts = []
     datetime_block_durations = []
     for k, datetime_index in enumerate(datetime_indexes[:-1]):
-        if datetime_indexes[k + 1].value - datetime_index.value != datetime.timedelta(hours=time_durations[k]):
+        if datetime_indexes[k + 1].value - datetime_index.value != datetime.timedelta(hours=int(time_durations[k])):
             datetime_block_starts.append(datetime_block_start)
             datetime_block_durations.append(api.Duration(relativedelta(datetime_index.value,
                                                                        datetime_block_start.value)
-                                                         + relativedelta(hours=time_durations[k])))
+                                                         + relativedelta(hours=int(time_durations[k]))))
             datetime_block_start = datetime_indexes[k + 1]
     spine_array = api.Array(values=datetime_block_starts,
                             #value_type=api.DateTime,

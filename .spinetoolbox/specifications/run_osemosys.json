@@ -2,7 +2,7 @@
     "name": "run_OSeMOSYS3",
     "tooltype": "executable",
     "includes": [
-        "glpsol.exe",
+        "glpsol",
         "glpk_4_61.dll"
     ],
     "description": "",
@@ -20,5 +20,5 @@
         "-d",
         "model_new.dat"
     ],
-    "includes_main_path": "../../.."
+    "includes_main_path": "../../../../../toolbox-projects/osemosys_flextool_linux"
 }
