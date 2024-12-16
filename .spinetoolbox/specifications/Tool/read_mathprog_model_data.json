@@ -1,0 +1,16 @@
+{
+    "name": "read_mathprog_model_data",
+    "tooltype": "python",
+    "includes": [
+        "read_mathprog_model_data.py"
+    ],
+    "description": "",
+    "inputfiles": [
+        "model.dat",
+        "param_dimens.yaml"
+    ],
+    "inputfiles_opt": [],
+    "outputfiles": [],
+    "cmdline_args": [],
+    "includes_main_path": "../../../../ines-tools/ines_tools/tool_specific/mathprog"
+}
