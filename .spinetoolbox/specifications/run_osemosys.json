@@ -7,8 +7,8 @@
     ],
     "description": "",
     "inputfiles": [
-        "model.dat",
-        "model.mod"
+        "model.mod",
+        "model_new.dat"
     ],
     "inputfiles_opt": [],
     "outputfiles": [
