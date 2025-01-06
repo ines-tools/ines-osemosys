@@ -71,9 +71,9 @@ def main():
                 print(e)
                 exit("no alternatives in the source database, check the URL for the DB")
 
-            ## Copy entites
+            ## Copy entities
             target_db = ines_transform.copy_entities(source_db, target_db, entities_to_copy)
-            ## Create periods from yesr
+            ## Create periods from years
             target_db = create_periods(source_db, target_db)
             ## Copy timeslice parameters (manual scripting)
             target_db = process_timeslice_data(source_db, target_db)
