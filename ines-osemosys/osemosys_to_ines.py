@@ -78,8 +78,8 @@ def main():
             ## Copy timeslice parameters (manual scripting)
             target_db = process_timeslice_data(source_db, target_db)
             ## Copy numeric parameters(source_db, target_db, parameter_transforms)
-            target_db = ines_transform.transform_parameters_use_default(source_db, target_db, parameter_transforms,
-                                                                        default_alternative="base", ts_to_map=True)
+            target_db = ines_transform.transform_parameters(source_db, target_db, parameter_transforms,
+                                                                        use_default=True, default_alternative="base", ts_to_map=True)
             ## Copy method parameters
             target_db = ines_transform.process_methods(source_db, target_db, parameter_methods)
             ## Copy entities to parameters
@@ -101,10 +101,6 @@ def create_periods(source_db, target_db):
         added, error = target_db.add_entity_item(entity_class_name="system", name=model["name"])
         if error:
             exit("Could not add system entity to ines-db: " + error)
-
-        added, error = target_db.add_entity_item(entity_class_name="temporality", name=model["name"])
-        if error:
-            exit("Could not add temporality entity to ines-db: " + error)
 
         added, error = target_db.add_entity_item(entity_class_name="solve_pattern", entity_byname=(model["name"],))
         if error:
@@ -176,12 +172,6 @@ def create_periods(source_db, target_db):
                                                                     active=ea["active"])
             if error:
                 exit("Adding system entity_alternative failed. " + error)
-            added_ea, update_ea, error = target_db.add_update_entity_alternative_item(entity_class_name="temporality",
-                                                                    entity_byname=(model["name"],),
-                                                                    alternative_name=ea["alternative_name"],
-                                                                    active=ea["active"])
-            if error:
-                exit("Adding temporality entity_alternative failed. " + error)
     try:
         target_db.commit_session("Added periods from YEARs to ines_db")
     except DBAPIError as e:
@@ -215,8 +205,8 @@ def process_timeslice_data(source_db, target_db):
             #exit("Variable time resolution not suppported, please make a timeslice to datetime mapping with only one time resolution (use the lowest common denominator)")
     # Store the model time resolution in ines_db
     p_value, p_type = api.to_database(previous_time_duration)
-    added, error = target_db.add_parameter_value_item(entity_class_name="temporality",
-                                                      parameter_definition_name="resolution",
+    added, error = target_db.add_parameter_value_item(entity_class_name="solve_pattern",
+                                                      parameter_definition_name="time_resolution",
                                                       entity_byname=tuple([model_item["name"]]),
                                                       alternative_name=timeslices_to_time[0]["alternative_name"],
                                                       value=p_value,
