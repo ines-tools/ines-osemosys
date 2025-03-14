@@ -357,6 +357,11 @@ def process_capacities(source_db, target_db, unit_capacity):
         source_unit_fixed_cost = source_db.get_parameter_value_items(entity_class_name="REGION__TECHNOLOGY", entity_name=unit_source["name"], parameter_definition_name="FixedCost")
         source_unit_variable_cost = source_db.get_parameter_value_items(entity_class_name="REGION__TECHNOLOGY", entity_name=unit_source["name"], parameter_definition_name="VariableCost")
 
+        source_unit_interest_rate = source_db.get_parameter_value_items(entity_class_name="REGION__TECHNOLOGY", entity_name=unit_source["name"], parameter_definition_name="DiscountRateIdv")
+        source_region_interest_rate = source_db.get_parameter_value_items(entity_class_name="REGION", entity_name=unit_source["name"], parameter_definition_name="DiscountRate")
+        default_discount_rate = source_db.get_parameter_definition_item(entity_class_name="REGION", name="DiscountRate")
+        unit_entity_alternatives = source_db.get_entity_alternative_items(entity_class_name="unit")
+
         act_indexes = None
         input_act_ratio = []
         output_act_ratio = []
@@ -539,11 +544,33 @@ def process_capacities(source_db, target_db, unit_capacity):
                 if min(source_param.values) > 0:
                     flag_allow_investments = True
                     alt_fixed_cost = alt_activity
+            
+            #find interest rate from either from the entity itself, region or region's default value
+            interest_rate = None
+            for source_param in source_unit_interest_rate:
+                if source_param["entity_byname"] == unit_source["entity_byname"]:
+                    interest_rate = api.from_database(source_param["value"], source_param["type"])
+                    alt = source_param["alternative_name"]
+            if not interest_rate:
+                for source_param in source_region_interest_rate:
+                    if source_param["entity_byname"][0] == unit_source["entity_byname"][0]:
+                        interest_rate = api.from_database(source_param["value"], source_param["type"])
+                        alt = source_param["alternative_name"]
+            if not interest_rate:
+                if default_discount_rate["default_value"]:
+                    interest_rate = api.from_database(default_discount_rate["default_value"], default_discount_rate["default_type"])
+                    for unit in unit_entity_alternatives:
+                        if unit["entity_byname"] == unit_source["entity_byname"]:
+                            alt = unit["entity_alternative_name"]
+            if interest_rate:
+                target_db = ines_transform.add_item_to_DB(target_db, "interest_rate", (alt, (unit_source["name"],), "unit"), interest_rate)
+
             if flag_allow_investments:
                 if flag_limit_cumulative_investments:
                     p_value, p_type = api.to_database("cumulative_limits")
                 else:
                     p_value, p_type = api.to_database("no_limits")
+                
             else:
                 p_value, p_type = api.to_database("not_allowed")
             alt = alternative_name_from_two(alt_inv_cost, alt_fixed_cost, target_db)

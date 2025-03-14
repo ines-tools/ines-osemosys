@@ -6,7 +6,6 @@
 
 REGION__TECHNOLOGY:
   unit:
-    DiscountRateIdv: [interest_rate, 1, [[1, 2]]]
     OperationalLife: [lifetime, 1, [[1, 2]]] 
 #  unit__to_node:
 REGION__FUEL:
