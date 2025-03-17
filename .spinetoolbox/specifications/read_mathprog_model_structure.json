@@ -13,5 +13,5 @@
         "param_dimens.yaml"
     ],
     "cmdline_args": [],
-    "includes_main_path": "../../../../ines-tools/ines_tools/tool_specific/mathprog"
+    "includes_main_path": "../../../ines-tools/ines_tools/tool_specific/mathprog"
 }
