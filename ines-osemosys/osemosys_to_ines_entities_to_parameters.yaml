@@ -5,7 +5,6 @@
 REGION__FUEL: 
   node: 
     node_type: ["new_value", "balance", [[1, 2]]]
-    flow_scaling_method: ["new_value", "scale_to_annual", [[1, 2]]]
 REGION__STORAGE: 
   node: 
     node_type: ["new_value", "storage", [[1, 2]]]
