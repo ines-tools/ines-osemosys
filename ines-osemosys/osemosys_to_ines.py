@@ -305,6 +305,9 @@ def add_timeslice_data(source_db, target_db, year_split_data, alternative_name, 
                                                                   round(float(profile_data_by_slices.values[0]), 6)  # Note that this takes the first value from the array of years (first year)
             datetime_profiles = []
             for t, timeslice_index in enumerate(timeslice_indexes):
+                if timeslice_index not in timeslice_profiles.keys():
+                    print(f'Timeslice index {timeslice_index} not found in timeslice profiles for {source_class["name"]} parameter {source_param_name}')
+                    sys.exit(-1)
                 datetime_profiles.append(timeslice_profiles[timeslice_index])
             to_db_profile_data = api.TimeSeriesVariableResolution(
                 datetime_indexes,
@@ -1006,7 +1009,6 @@ def process_emissions(source_db, target_db):
     ModelPeriodEmissionLimit = source_db.get_parameter_value_items(entity_class_name="REGION__EMISSION",parameter_definition_name="ModelPeriodEmissionLimit")
 
     output_act_ratios = source_db.get_parameter_value_items(entity_class_name="REGION__TECHNOLOGY__FUEL", parameter_definition_name="OutputActivityRatio")
-    input_act_ratios = source_db.get_parameter_value_items(entity_class_name="REGION__TECHNOLOGY__FUEL", parameter_definition_name="InputActivityRatio")
 
     for param in EmissionActivityRatio:
         param_map = api.from_database(param["value"], param["type"])
@@ -1018,17 +1020,22 @@ def process_emissions(source_db, target_db):
                 param_map = param_map.values[0]
         
         #check if co2 or not
-        if param["entity_byname"][2] in ["CO2", "co2"]:
-            param_name = "co2_emission_rate"
-            for ia_ratio in input_act_ratios:
-                if ia_ratio["entity_byname"][0] == param["entity_byname"][0] and ia_ratio["entity_byname"][1] == param["entity_byname"][1]:
-                    entity_byname = (param["entity_byname"][0] + "__" + param["entity_byname"][2],)
-                    alt_ent_class = (param["alternative_name"], entity_byname, "node")
+        if any(x in param["entity_byname"][2] for x in ["CO2", "co2", "C02"]):
+            #add commodity node
+            param_name = "co2_content"
+            for oa_ratio in output_act_ratios:
+                if oa_ratio["entity_byname"][0] == param["entity_byname"][0] and oa_ratio["entity_byname"][1] == param["entity_byname"][1]:
+                    node_name = f'{oa_ratio["entity_byname"][1]}_CO2_commodity'
+                    ines_transform.assert_success(target_db.add_entity_item(entity_class_name='node', entity_byname=(node_name,)), warn=True)
+                    entity_byname = (node_name, oa_ratio["entity_byname"][0] + "__" + oa_ratio["entity_byname"][1],)
+                    ines_transform.assert_success(target_db.add_entity_item(entity_class_name='node__to_unit', entity_byname=entity_byname), warn=True)
+                    alt_ent_class = (param["alternative_name"], (node_name,), "node")
                     target_db = ines_transform.add_item_to_DB(target_db, param_name, alt_ent_class, param_map)
+                    target_db = ines_transform.add_item_to_DB(target_db, "node_type", alt_ent_class, "commodity")
         else:
-            if param["entity_byname"][2] in ["NOX","nox"]:
+            if any(x in param["entity_byname"][2] for x in ["NOX", "nox"]):
                 param_name = "nox_emission_rate"
-            elif param["entity_byname"][2] in ["SO2","so2"]:
+            elif any(x in param["entity_byname"][2] for x in ["SO2", "so2", "S02"]):
                 param_name = "so2_emission_rate"
             else:
                 continue
@@ -1039,11 +1046,11 @@ def process_emissions(source_db, target_db):
                     target_db = ines_transform.add_item_to_DB(target_db, param_name, alt_ent_class, param_map)
 
     for param in EmissionsPenalty:
-        if param["entity_byname"][1] in ["CO2", "co2"]:
+        if any(x in param["entity_byname"][1] for x in ["CO2", "co2", "C02"]):
             param_name = "co2_price"
-        elif param["entity_byname"][1] in ["NOX","nox"]:
+        elif any(x in param["entity_byname"][1] for x in ["NOX", "nox"]):
             param_name = "nox_price"
-        elif param["entity_byname"][1] in ["SO2","so2"]:
+        elif any(x in param["entity_byname"][1] for x in ["SO2", "so2", "S02"]):
             param_name = "so2_price"
         else:
             continue
@@ -1052,11 +1059,11 @@ def process_emissions(source_db, target_db):
         target_db = ines_transform.add_item_to_DB(target_db, param_name, alt_ent_class, param_map)
 
     for param in AnnualEmissionLimit:
-        if param["entity_byname"][1] in ["CO2", "co2"]:
+        if any(x in param["entity_byname"][1] for x in ["CO2", "co2", "C02"]):
             param_name = "co2_max_period"
-        elif param["entity_byname"][1] in ["NOX","nox"]:
+        elif any(x in param["entity_byname"][1] for x in ["NOX", "nox"]):
             param_name = "nox_max_period"
-        elif param["entity_byname"][1] in ["SO2","so2"]:
+        elif any(x in param["entity_byname"][1] for x in ["SO2", "so2", "S02"]):
             param_name = "so2_max_period"
         else:
             continue
@@ -1074,21 +1081,21 @@ def process_emissions(source_db, target_db):
         target_db = ines_transform.add_item_to_DB(target_db, param_name, alt_ent_class, param_map)
 
     for param in ModelPeriodEmissionLimit:
-        if param["entity_byname"][1] in ["CO2", "co2"]:
+        if any(x in param["entity_byname"][1] for x in ["CO2", "co2", "C02"]):
             param_name = "co2_max_cumulative"
-        elif param["entity_byname"][1] in ["NOX","nox"]:
-            param_name = "co2_max_cumulative"
-        elif param["entity_byname"][1] in ["SO2","so2"]:
-            param_name = "co2_max_cumulative"
+        elif any(x in param["entity_byname"][1] for x in ["NOX", "nox"]):
+            param_name = "nox_max_cumulative"
+        elif any(x in param["entity_byname"][1] for x in ["SO2", "so2", "S02"]):
+            param_name = "so2_max_cumulative"
         else:
             continue
         param_float = api.from_database(param["value"], param["type"])
-        if isinstance(param_map, float):
+        if isinstance(param_float, float):
             alt_ent_class = (param["alternative_name"], (param["entity_byname"][0],), "set")
             for Exo in ModelPeriodExogenousEmission:
                 if Exo["entity_byname"][0] == param["entity_byname"][0] and Exo["entity_byname"][1] == param["entity_byname"][1]:
                     exo_float = api.from_database(Exo["value"], Exo["type"])
-                    param_float = param_map - exo_float
+                    param_float = param_float - exo_float
             target_db = ines_transform.add_item_to_DB(target_db, param_name, alt_ent_class, param_float)
     return target_db    
 
