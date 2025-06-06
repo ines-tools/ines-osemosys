@@ -374,6 +374,7 @@ def process_capacities(source_db, target_db, default_unit_capacity):
         default_discount_rate = source_db.get_parameter_definition_item(entity_class_name="REGION", name="DiscountRate")
         unit_entity_alternatives = source_db.get_entity_alternative_items(entity_class_name="unit")
 
+        #calculating the efficiency from InputActivityRatio and OutputActivityRatio
         act_indexes = None
         input_act_ratio = []
         output_act_ratio = []
@@ -399,20 +400,22 @@ def process_capacities(source_db, target_db, default_unit_capacity):
             for param in input_act_params:
                 mode_map_objects = api.from_database(param["value"], "map")
                 for k, input_map_object in enumerate(mode_map_objects.values):
-                    input_act_ratio.append({param["alternative_name"]: input_map_object.values})
-                    if act_indexes:
-                        if not act_indexes == input_map_object.indexes:
-                            exit("InputActivityRatio and/or OutputActivityRatio contain inconsistent YEAR indexes for " and rtf_ent["name"])
-                    act_indexes = input_map_object.indexes
+                    if k == 0:
+                        input_act_ratio.append({param["alternative_name"]: input_map_object.values})
+                        if act_indexes:
+                            if not act_indexes == input_map_object.indexes:
+                                exit("InputActivityRatio and/or OutputActivityRatio contain inconsistent YEAR indexes for " and rtf_ent["name"])
+                        act_indexes = input_map_object.indexes
         if output_act_params:
             for param in output_act_params:
                 mode_map_objects = api.from_database(param["value"], "map")
                 for k, output_map_object in enumerate(mode_map_objects.values):
-                    output_act_ratio.append({param["alternative_name"]: output_map_object.values})
-                    if act_indexes:
-                        if not act_indexes == output_map_object.indexes:
-                            exit("InputActivityRatio and/or OutputActivityRatio contain inconsistent YEAR indexes")
-                    act_indexes = output_map_object.indexes
+                    if k == 0:
+                        output_act_ratio.append({param["alternative_name"]: output_map_object.values})
+                        if act_indexes:
+                            if not act_indexes == output_map_object.indexes:
+                                exit("InputActivityRatio and/or OutputActivityRatio contain inconsistent YEAR indexes")
+                        act_indexes = output_map_object.indexes
 
         if len(input_act_ratio) == 1 and len(output_act_ratio) == 1:
             for alt_i, iar in input_act_ratio[0].items():
@@ -473,6 +476,12 @@ def process_capacities(source_db, target_db, default_unit_capacity):
                     summed_output = [sum(x) for x in zip(*output_values)]
                     summed_input = [sum(x) for x in zip(*input_values)]
                     alt_ent_class = (alt, (unit_source["name"],), "unit")
+                    print(input_act_ratio)
+                    print(output_act_ratio)
+                    print(input_list)
+                    print(input_values)
+                    print(unit_source["name"])
+
                     target_db = ines_transform.add_item_to_DB(target_db, "efficiency", alt_ent_class, summed_output[0] / summed_input[0])
             if len(output_values) > 1:
                 output_1 = None
@@ -597,9 +606,12 @@ def process_capacities(source_db, target_db, default_unit_capacity):
                 # alt = alternative_name_from_two(source_param["alternative_name"], alt_activity, target_db)
                 alt = source_param["alternative_name"]
                 source_param = api.from_database(source_param["value"], "map")
-                if len(source_param) > 1:
-                    exit("More than one mode_of_operation with variable_cost defined. Can't handle that. Entity: " + unit_byname)
-                source_param = source_param.values[0]  # Bypass mode_of_operation dimension (assume there is only one)
+                if isinstance(source_param.values[0], api.Map):
+                    #exit("More than one mode_of_operation with variable_cost defined. Can't handle that. Entity: " + unit_byname)
+                    print("Only one mode_of_operation is allowed, taking the first one.")
+                    source_param = source_param.values[0]  # Bypass mode_of_operation dimension (assume there is only one)
+                #else:
+                #    source_param = source_param.values[0]  # Bypass mode_of_operation dimension (assume there is only one)
                 source_param.values = [s *variable_cost_unit_ratio / a for s, a in zip(source_param.values, act_ratio)]
                 source_param.index_name = "period"
                 alt_ent_class = (alt, entity_byname, class_name)
@@ -792,8 +804,6 @@ def process_demands(source_db, target_db, datetime_indexes):
     SpecifiedAnnualDemand = source_db.get_parameter_value_items(entity_class_name="REGION__FUEL", parameter_definition_name="SpecifiedAnnualDemand")
 
     for region_fuel in region__fuels:
-        acc_demand = False
-        profile = False
         demand = False
         for param in AccumulatedAnnualDemand:
             if param["entity_byname"] == region_fuel["entity_byname"]:
@@ -968,14 +978,14 @@ def process_reserves(source_db, target_db, timeslice_to_time_data):
                     if param["entity_byname"] == fuel["entity_byname"]:
                         alt_ent_class = [param["alternative_name"], (param["entity_byname"][0]+"__"+param["entity_byname"][1], reserve_name), "node__reserve"] 
                         annual_value = api.from_database(param["value"], param["type"])
-                        out_values = [x - y for x, y in zip(values, annual_value.values)]
+                        out_values = [(x - y) * demand_unit_ratio for x, y in zip(values, annual_value.values)]
                         timeline_map = api.TimeSeriesVariableResolution(timeslice_to_time_data.indexes, out_values, ignore_year=False, repeat=False, index_name="timestamp")
                         target_db = ines_transform.add_item_to_DB(target_db, "reserve_requirement", alt_ent_class, timeline_map)
                 for param in AccumulatedAnnualDemand:
                     if param["entity_byname"] == fuel["entity_byname"]:
                         alt_ent_class = [param["alternative_name"], (param["entity_byname"][0]+"__"+param["entity_byname"][1], reserve_name), "node__reserve"] 
                         acc_annual_value = api.from_database(param["value"], param["type"])
-                        out_values = [acc_annual_value/len(timeslice_to_time_data.indexes) for i in timeslice_to_time_data.indexes]
+                        out_values = [acc_annual_value * demand_unit_ratio/len(timeslice_to_time_data.indexes) for i in timeslice_to_time_data.indexes]
                         timeline_map = api.TimeSeriesVariableResolution(timeslice_to_time_data.indexes, out_values, ignore_year=False, repeat=False, index_name="timestamp")
                         target_db = ines_transform.add_item_to_DB(target_db, "reserve_requirement", alt_ent_class, timeline_map)
 
@@ -1100,37 +1110,55 @@ def process_emissions(source_db, target_db):
     return target_db    
 
 def process_set_constraints(source_db, target_db):
-    #will represent the renewable limit as the non-synchronous generation limit, these will work the same way, but are just named differently
 
-    RETagTechnology = source_db.get_parameter_value_items(entity_class_name="REGION__TECHNOLOGY", parameter_definition_name="ResidualStorageCapacity")
-    RETagFuel = source_db.get_parameter_value_items(entity_class_name="REGION__FUEL", parameter_definition_name="ResidualStorageCapacity")
-    REMinProductionTarget = source_db.get_parameter_value_items(entity_class_name="REGION", parameter_definition_name="ResidualStorageCapacity")
+    #this constraint is presented as the minimum production of demand, not of all production. They are not exactly the same constraint, but on a system without slacks, they should be the same.
+    RETagTechnology = source_db.get_parameter_value_items(entity_class_name="REGION__TECHNOLOGY", parameter_definition_name="RETagTechnology")
+    RETagFuel = source_db.get_parameter_value_items(entity_class_name="REGION__FUEL", parameter_definition_name="RETagFuel")
+    REMinProductionTarget = source_db.get_parameter_value_items(entity_class_name="REGION", parameter_definition_name="REMinProductionTarget")
     oa_ratio = source_db.get_parameter_value_items(entity_class_name="REGION__TECHNOLOGY__FUEL", parameter_definition_name="OutputActivityRatio")
-
+    SpecifiedAnnualDemand = source_db.get_parameter_value_items(entity_class_name="REGION__FUEL", parameter_definition_name="SpecifiedAnnualDemand")
+    AccumulatedAnnualDemand = source_db.get_parameter_value_items(entity_class_name="REGION__FUEL", parameter_definition_name="AccumulatedAnnualDemand")
 
     for target in REMinProductionTarget:
-        set_name = target["entity_byname"][0] + "RE_limit"
+        set_name = target["entity_byname"][0] + "_RE_target"
         ines_transform.assert_success(target_db.add_entity_item(entity_class_name='set', entity_byname=(set_name,)), warn=True)
-        val = api.from_database(target["value"], target["type"])
-        target_db = ines_transform.add_item_to_DB(target_db, "non_synchronous_limit", [target["alternative_name"], (set_name,),'set'], val)
+        factor_map = api.from_database(target["value"], target["type"])
+        yearly_demand = [0 for i in factor_map.indexes]
 
         for fuel in RETagFuel:
             if fuel["entity_byname"][0] == target["entity_byname"][0]:
                 node_name = fuel["entity_byname"][0] + "__" + fuel["entity_byname"][1]
-                ines_transform.assert_success(target_db.add_entity_item(entity_class_name='set__node', entity_byname=(set_name,node_name)), warn=True)
+                #getting demand
+                for param in SpecifiedAnnualDemand:
+                    if param["entity_byname"] == fuel["entity_byname"]:
+                        param_map = api.from_database(param["value"], param["type"])
+                        for i, val in enumerate(param_map.values):
+                            yearly_demand[i] += val * demand_unit_ratio
+                    demand = True
+                if not demand:
+                    for param in AccumulatedAnnualDemand:
+                        if param["entity_byname"] == fuel["entity_byname"]:
+                            param_map = api.from_database(param["value"], param["type"])
+                            for i, val in enumerate(param_map.values):
+                                yearly_demand[i] += val * demand_unit_ratio
+                #adding the flows to the set
                 for tech in RETagTechnology:
+                    print("asdgd")
                     if tech["entity_byname"][0] != target["entity_byname"][0]:
                         continue
                     for param in oa_ratio:
                         if param["entity_byname"][0] == target["entity_byname"][0] and \
-                           param["entity_byname"][1] == tech["entity_byname"][1] and \
-                           param["entity_byname"][2] == fuel["entity_byname"][1]:
-                            
+                            param["entity_byname"][1] == tech["entity_byname"][1] and \
+                            param["entity_byname"][2] == fuel["entity_byname"][1]:
+                            print("asd")
                             unit_name = tech["entity_byname"][0] + "__" + tech["entity_byname"][1]
                             unit__to_node_byname = (unit_name, node_name)
-                            alt_ent_class = (tech["alternative_name"], unit__to_node_byname, "unit_to_node")
-                            target_db = ines_transform.add_item_to_DB(target_db, "is_non_synchronous", alt_ent_class, "true")
-                            ines_transform.assert_success(target_db.add_entity_item(entity_class_name='set__unit_flow', entity_byname=(set_name, unit__to_node_byname)), warn=True)
+                            ines_transform.assert_success(target_db.add_entity_item(entity_class_name='set__unit_flow', 
+                                                                                    entity_byname=(set_name, unit__to_node_byname[0],unit__to_node_byname[1])), warn=True)
+        
+        flow_target_values = [x * factor for (x,factor) in zip(yearly_demand, factor_map.values)]
+        flow_target = api.Map(factor_map.indexes, flow_target_values, index_name="period")
+        target_db = ines_transform.add_item_to_DB(target_db, "flow_min_cumulative", [target["alternative_name"], (set_name,),'set'], flow_target)
 
     return target_db
 
@@ -1164,6 +1192,8 @@ def process_node_types(source_db, target_db):
     return target_db
 
 #### Mode of operation transformation is still missing### 
+
+### Passes only one scenario, some parameters are not possible to transform for all alternatives
 
 def alternative_name_from_two(alt_i, alt_o, target_db):
     if alt_i == alt_o:
