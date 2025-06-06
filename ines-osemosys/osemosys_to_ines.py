@@ -55,7 +55,7 @@ def main():
             ## Create periods from years
             target_db = create_periods(source_db, target_db)
             ## Copy timeslice parameters (manual scripting)
-            target_db, datetime_indexes = process_timeslice_data(source_db, target_db, timeslice_csv)
+            target_db, datetime_indexes, timeslice_indexes = process_timeslice_data(source_db, target_db, timeslice_csv)
             ## Copy numeric parameters(source_db, target_db, parameter_transforms)
             target_db = ines_transform.transform_parameters(source_db, target_db, parameter_transforms,
                                                                         use_default=True, default_alternative="base", ts_to_map=True)
@@ -72,9 +72,13 @@ def main():
             ## Process units with zero investment cost
             target_db = process_zero_investment_cost(source_db, target_db)
             ## Add constraints
-            target_db = process_set_constraints(source_db, target_db)
+            target_db = process_RE_min_constraint(source_db, target_db)
+            ## Add activity constraints
+            target_db = process_activity_constraints(source_db, target_db)
             ##Process emissions
             target_db = process_emissions(source_db, target_db)
+            ## Process reserves
+            target_db = process_reserves(source_db, target_db, timeslice_indexes)
             ## Process storages. This is done last as it takes a copy of an unit in the target db
             target_db = process_storages(source_db, target_db)
             ## Assign node types
@@ -282,7 +286,7 @@ def process_timeslice_data(source_db, target_db, read_separate_csv):
         target_db = add_timeslice_data(source_db, target_db, year_split_data, year_split["alternative_name"],
                                        "REGION__TECHNOLOGY", "CapacityFactor", "unit", "availability",
                                        timeslice_indexes, datetime_indexes, 1.0, False)
-    return target_db, datetime_indexes
+    return target_db, datetime_indexes, timeslice_indexes
 
 
 def add_timeslice_data(source_db, target_db, year_split_data, alternative_name, source_class_name,
@@ -932,80 +936,11 @@ def process_storages(source_db, target_db):
     
     return target_db
 
-def process_reserves(source_db, target_db, timeslice_to_time_data):
+def process_reserves(source_db, target_db, timeslice_indexes):
 
-    ReserveMarginTagTechnology = source_db.get_parameter_value_items(entity_class_name="REGION__TECHNOLOGY",parameter_definition_name="ReserveMarginTagTechnology")
-    ReserveMarginTagFuel = source_db.get_parameter_value_items(entity_class_name="REGION__FUEL",parameter_definition_name="ReserveMarginTagFuel")
-    ReserveMargin = source_db.get_parameter_value_items(entity_class_name="REGION",parameter_definition_name="ReserveMargin")
-    SpecifiedDemandProfile = source_db.get_parameter_value_items(entity_class_name="REGION__FUEL", parameter_definition_name="SpecifiedDemandProfile")
-    SpecifiedAnnualDemand = source_db.get_parameter_value_items(entity_class_name="REGION__FUEL", parameter_definition_name="SpecifiedAnnualDemand")
-    AccumulatedAnnualDemand = source_db.get_parameter_value_items(entity_class_name="REGION__FUEL", parameter_definition_name="AccumulatedAnnualDemand")
-    output_act_ratios = source_db.get_parameter_value_items(entity_class_name="REGION__TECHNOLOGY__FUEL", parameter_definition_name="OutputActivityRatio")
-
-    """
-    The reserve in Osemosys is in the form of factor * production in region <= Capacity in region.
-    This is transfromed to -> factor * demand <= capacity
-    -> factor * demand <= demand + reserve
-    -> reserve >= (factor-1) * demand
-
-    Technically, this is not the same as production can be larger than demand with storage. 
-    However, as a timeslice model, the reserve requirement is not modelled properly anyway.
-    """
-
-    for param in ReserveMargin:
-        res_margin = api.from_database(param["value"], param["type"])
-        reserve_name = param["entity_byname"][0] + "_reserve" 
-        ines_transform.assert_success(target_db.add_entity_item(entity_class_name="reserve", name=reserve_name), warn=True)
-        target_db = ines_transform.add_item_to_DB(target_db, "reserve_type", [param["alternative_name"],(reserve_name,),'reserve'], 'upward')
-        
-        #requirement from demand
-        for fuel in ReserveMarginTagFuel:
-            #Check that the binary tag is 1. Only supports tags that are constant in time
-            if api.from_database(fuel["value"], fuel["type"]).values[0] == 0.0:
-                continue
-            if fuel["entity_byname"][0] == param["entity_byname"][0]:
-                alt_ent_class = (fuel["alternative_name"], (fuel["entity_byname"][0]+"__"+fuel["entity_byname"][1], reserve_name), "node__reserve")
-                for param in SpecifiedDemandProfile:
-                    if param["entity_byname"] == fuel["entity_byname"]:
-                        alt_ent_class = [param["alternative_name"], (param["entity_byname"][0]+"__"+param["entity_byname"][1], reserve_name), "node__reserve"] 
-                        prof_value = api.from_database(param["value"], param["type"])
-                        values = list()
-                        for i, datetime_index in enumerate(timeslice_to_time_data.indexes):
-                            for j, val in enumerate(prof_value.indexes):
-                                if val  == timeslice_to_time_data.values[i].indexes[0]: #do the timeslices match
-                                    values.append(prof_value.values[j].values[0])
-                for param in SpecifiedAnnualDemand:
-                    if param["entity_byname"] == fuel["entity_byname"]:
-                        alt_ent_class = [param["alternative_name"], (param["entity_byname"][0]+"__"+param["entity_byname"][1], reserve_name), "node__reserve"] 
-                        annual_value = api.from_database(param["value"], param["type"])
-                        out_values = [(x - y) * demand_unit_ratio for x, y in zip(values, annual_value.values)]
-                        timeline_map = api.TimeSeriesVariableResolution(timeslice_to_time_data.indexes, out_values, ignore_year=False, repeat=False, index_name="timestamp")
-                        target_db = ines_transform.add_item_to_DB(target_db, "reserve_requirement", alt_ent_class, timeline_map)
-                for param in AccumulatedAnnualDemand:
-                    if param["entity_byname"] == fuel["entity_byname"]:
-                        alt_ent_class = [param["alternative_name"], (param["entity_byname"][0]+"__"+param["entity_byname"][1], reserve_name), "node__reserve"] 
-                        acc_annual_value = api.from_database(param["value"], param["type"])
-                        out_values = [acc_annual_value * demand_unit_ratio/len(timeslice_to_time_data.indexes) for i in timeslice_to_time_data.indexes]
-                        timeline_map = api.TimeSeriesVariableResolution(timeslice_to_time_data.indexes, out_values, ignore_year=False, repeat=False, index_name="timestamp")
-                        target_db = ines_transform.add_item_to_DB(target_db, "reserve_requirement", alt_ent_class, timeline_map)
-
-            #reserve production
-            for technology in ReserveMarginTagTechnology:
-                if technology["entity_byname"][0] != fuel["entity_byname"][0]:
-                    continue
-                #Check that the binary tag is 1. Only supports tags that are constant in time
-                reserve_provision = api.from_database(technology["value"], technology["type"]).values[0]
-                if reserve_provision > 0.0:
-                    for output_act_ratio in output_act_ratios:
-                        if (output_act_ratio["entity_byname"][0] == param["entity_byname"][0] and 
-                            output_act_ratio["entity_byname"][1] == technology["entity_byname"][1] and
-                            output_act_ratio["entity_byname"][2] == fuel["entity_byname"][1]):
-
-                            entity_byname = (output_act_ratio["entity_byname"][0] + "__" + output_act_ratio["entity_byname"][1],
-                                            output_act_ratio["entity_byname"][0] + "__" + output_act_ratio["entity_byname"][2],
-                                            reserve_name)
-                            alt_ent_class = (technology["alternative_name"], entity_byname, "unit__node__reserve")
-                            target_db = ines_transform.add_item_to_DB(target_db, "max_reserve_provision", alt_ent_class, reserve_provision)
+    #This constraint would be possible with user constraints:
+    #sum(flow_from_the_nodes) <= reserve_margin * sum(capacity of the units)
+    #It would be messy and most models do not have user constraints
 
     return target_db
 
@@ -1109,9 +1044,10 @@ def process_emissions(source_db, target_db):
             target_db = ines_transform.add_item_to_DB(target_db, param_name, alt_ent_class, param_float)
     return target_db    
 
-def process_set_constraints(source_db, target_db):
+def process_RE_min_constraint(source_db, target_db):
 
-    #this constraint is presented as the minimum production of demand, not of all production. They are not exactly the same constraint, but on a system without slacks, they should be the same.
+    #this constraint is presented as the minimum production of demand, not of all production. 
+    #They are not exactly the same constraint, but on a system without slacks, they should be the same.
     RETagTechnology = source_db.get_parameter_value_items(entity_class_name="REGION__TECHNOLOGY", parameter_definition_name="RETagTechnology")
     RETagFuel = source_db.get_parameter_value_items(entity_class_name="REGION__FUEL", parameter_definition_name="RETagFuel")
     REMinProductionTarget = source_db.get_parameter_value_items(entity_class_name="REGION", parameter_definition_name="REMinProductionTarget")
@@ -1143,14 +1079,12 @@ def process_set_constraints(source_db, target_db):
                                 yearly_demand[i] += val * demand_unit_ratio
                 #adding the flows to the set
                 for tech in RETagTechnology:
-                    print("asdgd")
                     if tech["entity_byname"][0] != target["entity_byname"][0]:
                         continue
                     for param in oa_ratio:
                         if param["entity_byname"][0] == target["entity_byname"][0] and \
                             param["entity_byname"][1] == tech["entity_byname"][1] and \
                             param["entity_byname"][2] == fuel["entity_byname"][1]:
-                            print("asd")
                             unit_name = tech["entity_byname"][0] + "__" + tech["entity_byname"][1]
                             unit__to_node_byname = (unit_name, node_name)
                             ines_transform.assert_success(target_db.add_entity_item(entity_class_name='set__unit_flow', 
@@ -1159,6 +1093,92 @@ def process_set_constraints(source_db, target_db):
         flow_target_values = [x * factor for (x,factor) in zip(yearly_demand, factor_map.values)]
         flow_target = api.Map(factor_map.indexes, flow_target_values, index_name="period")
         target_db = ines_transform.add_item_to_DB(target_db, "flow_min_cumulative", [target["alternative_name"], (set_name,),'set'], flow_target)
+
+    return target_db
+
+def process_activity_constraints(source_db, target_db):
+
+    TotalTechnologyAnnualActivityLowerLimit = source_db.get_parameter_value_items(entity_class_name="REGION__TECHNOLOGY", parameter_definition_name="TotalTechnologyAnnualActivityLowerLimit")
+    TotalTechnologyAnnualActivityUpperLimit = source_db.get_parameter_value_items(entity_class_name="REGION__TECHNOLOGY", parameter_definition_name="TotalTechnologyAnnualActivityUpperLimit")
+    TotalTechnologyModelPeriodActivityLowerLimit = source_db.get_parameter_value_items(entity_class_name="REGION__TECHNOLOGY", parameter_definition_name="TotalTechnologyModelPeriodActivityLowerLimit")
+    TotalTechnologyModelPeriodActivityUpperLimit = source_db.get_parameter_value_items(entity_class_name="REGION__TECHNOLOGY", parameter_definition_name="TotalTechnologyModelPeriodActivityUpperLimit")
+    oa_ratio = source_db.get_parameter_value_items(entity_class_name="REGION__TECHNOLOGY__FUEL", parameter_definition_name="OutputActivityRatio")
+
+    for param in TotalTechnologyAnnualActivityLowerLimit:
+        param_map = api.from_database(param["value"], param["type"])
+        set_name = param["entity_byname"][1] + "_min_annual_activity"
+        ines_transform.assert_success(target_db.add_entity_item(entity_class_name='set', entity_byname=(set_name,)), warn=True)
+        
+        for oa in oa_ratio:
+            if oa["entity_byname"][0] == param["entity_byname"][0] and oa["entity_byname"][1] == param["entity_byname"][1]:
+                unit_name = oa["entity_byname"][0] + "__" + oa["entity_byname"][1]
+                node_name = oa["entity_byname"][0] + "__" + oa["entity_byname"][2]
+                ines_transform.assert_success(target_db.add_entity_item(entity_class_name='set__unit_flow', 
+                                                                        entity_byname=(set_name, unit_name, node_name)), warn=True)
+                oa_ratio_map = api.from_database(oa["value"], oa["type"])
+                for i, val in enumerate(param_map.indexes):
+                    for j, oa_val in enumerate(oa_ratio_map.values):
+                        if val == oa_val:
+                            param_map.values[i] = oa_val.values[j] * param_map.values[i]
+                            break
+                
+                target_db = ines_transform.add_item_to_DB(target_db, "flow_min_cumulative", [param["alternative_name"], (set_name,), "set"], param_map)
+                break #taking the flow from one of the outputs is enough
+
+    for param in TotalTechnologyAnnualActivityUpperLimit:
+        param_map = api.from_database(param["value"], param["type"])
+        set_name = param["entity_byname"][1] + "_max_annual_activity"
+        ines_transform.assert_success(target_db.add_entity_item(entity_class_name='set', entity_byname=(set_name,)), warn=True)
+        
+        for oa in oa_ratio:
+            if oa["entity_byname"][0] == param["entity_byname"][0] and oa["entity_byname"][1] == param["entity_byname"][1]:
+                unit_name = oa["entity_byname"][0] + "__" + oa["entity_byname"][1]
+                node_name = oa["entity_byname"][0] + "__" + oa["entity_byname"][2]
+                ines_transform.assert_success(target_db.add_entity_item(entity_class_name='set__unit_flow', 
+                                                                        entity_byname=(set_name, unit_name, node_name)), warn=True)
+                oa_ratio_map = api.from_database(oa["value"], oa["type"])
+                for i, val in enumerate(param_map.indexes):
+                    for j, oa_val in enumerate(oa_ratio_map.values):
+                        if val == oa_val:
+                            param_map.values[i] = oa_val.values[j] * param_map.values[i]
+                            break
+                print("asd")
+                target_db = ines_transform.add_item_to_DB(target_db, "flow_max_cumulative", [param["alternative_name"], (set_name,), "set"], param_map)
+                break #taking the flow from one of the outputs is enough
+    
+    for param in TotalTechnologyModelPeriodActivityLowerLimit:
+        param_float = api.from_database(param["value"], param["type"])
+        set_name = param["entity_byname"][1] + "_min_model_activity"
+        ines_transform.assert_success(target_db.add_entity_item(entity_class_name='set', entity_byname=(set_name,)), warn=True)
+        
+        for oa in oa_ratio:
+            if oa["entity_byname"][0] == param["entity_byname"][0] and oa["entity_byname"][1] == param["entity_byname"][1]:
+                unit_name = oa["entity_byname"][0] + "__" + oa["entity_byname"][1]
+                node_name = oa["entity_byname"][0] + "__" + oa["entity_byname"][2]
+                ines_transform.assert_success(target_db.add_entity_item(entity_class_name='set__unit_flow', 
+                                                                        entity_byname=(set_name, unit_name, node_name)), warn=True)
+                oa_ratio_map = api.from_database(oa["value"], oa["type"])
+                param_float = param_float * oa_ratio_map.values[0].values[0] #taking the first value of the map, as INES supports only constant oa values
+                
+                target_db = ines_transform.add_item_to_DB(target_db, "flow_min_cumulative", [param["alternative_name"], (set_name,), "set"], param_float)
+                break #taking the flow from one of the outputs is enough
+    
+    for param in TotalTechnologyModelPeriodActivityUpperLimit:
+        param_float = api.from_database(param["value"], param["type"])
+        set_name = param["entity_byname"][1] + "_max_model_activity"
+        ines_transform.assert_success(target_db.add_entity_item(entity_class_name='set', entity_byname=(set_name,)), warn=True)
+        
+        for oa in oa_ratio:
+            if oa["entity_byname"][0] == param["entity_byname"][0] and oa["entity_byname"][1] == param["entity_byname"][1]:
+                unit_name = oa["entity_byname"][0] + "__" + oa["entity_byname"][1]
+                node_name = oa["entity_byname"][0] + "__" + oa["entity_byname"][2]
+                ines_transform.assert_success(target_db.add_entity_item(entity_class_name='set__unit_flow', 
+                                                                        entity_byname=(set_name, unit_name, node_name)), warn=True)
+                oa_ratio_map = api.from_database(oa["value"], oa["type"])
+                param_float = param_float * oa_ratio_map.values[0].values[0] #taking the first value of the map, as INES supports only constant oa values
+                
+                target_db = ines_transform.add_item_to_DB(target_db, "flow_max_cumulative", [param["alternative_name"], (set_name,), "set"], param_float)
+                break #taking the flow from one of the outputs is enough
 
     return target_db
 
@@ -1190,6 +1210,12 @@ def process_node_types(source_db, target_db):
     except:
         print("Failed to commit node_type balance_within_period on nodes with AccumulatedAnnualDemand")
     return target_db
+
+##Check paramters:
+#Done:
+# Emission
+# reMin
+# activity constraints
 
 #### Mode of operation transformation is still missing### 
 
