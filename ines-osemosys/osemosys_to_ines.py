@@ -55,7 +55,7 @@ def main():
             ## Create periods from years
             target_db = create_periods(source_db, target_db)
             ## Copy timeslice parameters (manual scripting)
-            target_db, datetime_indexes, timeslice_indexes = process_timeslice_data(source_db, target_db, timeslice_csv)
+            target_db, datetime_indexes, timeslice_indexes, year_splits = process_timeslice_data(source_db, target_db, timeslice_csv)
             ## Copy numeric parameters(source_db, target_db, parameter_transforms)
             target_db = ines_transform.transform_parameters(source_db, target_db, parameter_transforms,
                                                                         use_default=True, default_alternative="base", ts_to_map=True)
@@ -66,7 +66,7 @@ def main():
             ## Process demands
             target_db = process_demands(source_db, target_db , datetime_indexes)
             ## Copy capacity specific parameters (manual scripting)
-            target_db = process_capacities(source_db, target_db, default_unit_capacity=default_unit_size)
+            target_db = process_capacities(source_db, target_db, datetime_indexes, timeslice_indexes, year_splits, default_unit_capacity=default_unit_size)
             ## Special model level parameters
             target_db = process_model_level(source_db, target_db)
             ## Process units with zero investment cost
@@ -276,18 +276,48 @@ def process_timeslice_data(source_db, target_db, read_separate_csv):
         print("failed to add parameter values for starttimes and durations data. " + e)
 
     # Go through parameters that use time indexes
-    for year_split in source_db.get_parameter_value_items(entity_class_name="model",
+    year_splits =source_db.get_parameter_value_items(entity_class_name="model",
                                                           entity_name=model_item["name"],
-                                                          parameter_definition_name="YearSplit"):
+                                                          parameter_definition_name="YearSplit")
+    for year_split in year_splits:
         year_split_data = api.from_database(year_split["value"], year_split["type"])
         target_db = add_timeslice_data(source_db, target_db, year_split_data, year_split["alternative_name"],
                                        "REGION__FUEL", "SpecifiedDemandProfile", "node", "flow_profile",
                                        timeslice_indexes, datetime_indexes, -1.0, True)
-        target_db = add_timeslice_data(source_db, target_db, year_split_data, year_split["alternative_name"],
-                                       "REGION__TECHNOLOGY", "CapacityFactor", "unit", "availability",
-                                       timeslice_indexes, datetime_indexes, 1.0, False)
-    return target_db, datetime_indexes, timeslice_indexes
+        #target_db = add_timeslice_data(source_db, target_db, year_split_data, year_split["alternative_name"],
+        #                               "REGION__TECHNOLOGY", "CapacityFactor", "unit", "availability",
+        #                               timeslice_indexes, datetime_indexes, 1.0, False)
+    return target_db, datetime_indexes, timeslice_indexes, year_splits
 
+
+def get_timeslice_value(year_split_data, source_params, source_class,
+                       source_param_name, timeslice_indexes, datetime_indexes,
+                       multiplier, scale_with_time):
+    profile_data = source_params["parsed_value"]
+    timeslice_profiles = {}
+    for s, profile_data_by_slices in enumerate(profile_data.values):
+        if scale_with_time:
+            timeslice_profiles[profile_data.indexes[s]] = multiplier * \
+                                                            round(float(profile_data_by_slices.values[0]) /  # Note that this takes the first value from the array of years (first year)
+                                                                float(year_split_data.values[s].values[0]), 6)
+        else:
+            timeslice_profiles[profile_data.indexes[s]] = multiplier * \
+                                                            round(float(profile_data_by_slices.values[0]), 6)  # Note that this takes the first value from the array of years (first year)
+    datetime_profiles = []
+    for t, timeslice_index in enumerate(timeslice_indexes):
+        if timeslice_index not in timeslice_profiles.keys():
+            print(f'Timeslice index {timeslice_index} not found in timeslice profiles for {source_class["name"]} parameter {source_param_name}')
+            sys.exit(-1)
+        datetime_profiles.append(timeslice_profiles[timeslice_index])
+    to_db_profile_data = api.TimeSeriesVariableResolution(
+        datetime_indexes,
+        datetime_profiles,
+        ignore_year=False,
+        repeat=False
+    )
+    profile_data_divided, p_type = api.to_database(to_db_profile_data)
+    
+    return profile_data_divided, p_type,
 
 def add_timeslice_data(source_db, target_db, year_split_data, alternative_name, source_class_name,
                        source_param_name, target_class_name, target_param_name, timeslice_indexes, datetime_indexes,
@@ -297,36 +327,16 @@ def add_timeslice_data(source_db, target_db, year_split_data, alternative_name, 
                                                                  entity_name=source_class["name"],
                                                                  parameter_definition_name=source_param_name,
                                                                  alternative_name=alternative_name):
-            profile_data = source_params["parsed_value"]
-            timeslice_profiles = {}
-            for s, profile_data_by_slices in enumerate(profile_data.values):
-                if scale_with_time:
-                    timeslice_profiles[profile_data.indexes[s]] = multiplier * \
-                                                                  round(float(profile_data_by_slices.values[0]) /  # Note that this takes the first value from the array of years (first year)
-                                                                        float(year_split_data.values[s].values[0]), 6)
-                else:
-                    timeslice_profiles[profile_data.indexes[s]] = multiplier * \
-                                                                  round(float(profile_data_by_slices.values[0]), 6)  # Note that this takes the first value from the array of years (first year)
-            datetime_profiles = []
-            for t, timeslice_index in enumerate(timeslice_indexes):
-                if timeslice_index not in timeslice_profiles.keys():
-                    print(f'Timeslice index {timeslice_index} not found in timeslice profiles for {source_class["name"]} parameter {source_param_name}')
-                    sys.exit(-1)
-                datetime_profiles.append(timeslice_profiles[timeslice_index])
-            to_db_profile_data = api.TimeSeriesVariableResolution(
-                datetime_indexes,
-                datetime_profiles,
-                ignore_year=False,
-                repeat=False
-            )
-            profile_data_divided, p_type = api.to_database(to_db_profile_data)
+            
+            profile_data_divided, p_type = get_timeslice_value(year_split_data, source_params, source_class, source_param_name, 
+                                                               timeslice_indexes, datetime_indexes, multiplier, scale_with_time)
+            target_entity_byname = tuple(['__'.join(source_params["entity_byname"])])
             added, error = target_db.add_parameter_value_item(entity_class_name=target_class_name,
-                                                              parameter_definition_name=target_param_name,
-                                                              entity_byname=tuple(
-                                                                  ['__'.join(source_params["entity_byname"])]),
-                                                              alternative_name=alternative_name,
-                                                              value=profile_data_divided,
-                                                              type=p_type)
+                                                                parameter_definition_name=target_param_name,
+                                                                entity_byname=target_entity_byname,
+                                                                alternative_name=alternative_name,
+                                                                value=profile_data_divided,
+                                                                type=p_type)
             if error:
                 print("process timeslice data error: " + error)
     try:
@@ -337,7 +347,7 @@ def add_timeslice_data(source_db, target_db, year_split_data, alternative_name, 
     return target_db
 
 
-def process_capacities(source_db, target_db, default_unit_capacity):
+def process_capacities(source_db, target_db, datetime_indexes, timeslice_indexes, year_splits, default_unit_capacity):
     region__tech__fuel_entities = source_db.get_entity_items(entity_class_name="REGION__TECHNOLOGY__FUEL")
     TotalAnnualMaxCapacityInvestment = source_db.get_parameter_value_items(entity_class_name="REGION__TECHNOLOGY",
                                                 parameter_definition_name="TotalAnnualMaxCapacityInvestment")
@@ -345,30 +355,7 @@ def process_capacities(source_db, target_db, default_unit_capacity):
                                                 parameter_definition_name="TotalAnnualMinCapacityInvestment")
 
     for unit_source in source_db.get_entity_items(entity_class_name="REGION__TECHNOLOGY"):
-        unit_capacity = default_unit_capacity
-        # Store parameter units_existing (for the alternatives that define it)
-        flag_limit_cumulative_investments = False
-        source_unit_residual_capacity = source_db.get_parameter_value_items(entity_class_name="REGION__TECHNOLOGY", entity_name=unit_source["name"], parameter_definition_name="ResidualCapacity")
-        for param in source_unit_residual_capacity:
-            param_map = api.from_database(param["value"], "map")
-            param_map.values = [x * capacity_unit_ratio / unit_capacity for x in param_map.values]
-            alt_ent_class = (param["alternative_name"], (unit_source["name"],), "unit")
-            target_db = ines_transform.add_item_to_DB(target_db, "units_existing", alt_ent_class, param_map)
-        source_unit_total_max = source_db.get_parameter_value_items(entity_class_name="REGION__TECHNOLOGY", entity_name=unit_source["name"], parameter_definition_name="TotalAnnualMaxCapacity")
-        for param in source_unit_total_max:
-            param_map = api.from_database(param["value"], "map")
-            param_map.values = [x * capacity_unit_ratio / unit_capacity for x in param_map.values]
-            alt_ent_class = (param["alternative_name"], (unit_source["name"],), "unit")
-            target_db = ines_transform.add_item_to_DB(target_db, "units_max_cumulative", alt_ent_class, param_map)
-            flag_limit_cumulative_investments = True
-        source_unit_total_min = source_db.get_parameter_value_items(entity_class_name="REGION__TECHNOLOGY", entity_name=unit_source["name"], parameter_definition_name="TotalAnnualMinCapacity")
-        for param in source_unit_total_min:
-            param_map = api.from_database(param["value"], "map")
-            param_map.values = [x * capacity_unit_ratio / unit_capacity for x in param_map.values]
-            alt_ent_class = (param["alternative_name"], (unit_source["name"],), "unit")
-            target_db = ines_transform.add_item_to_DB(target_db, "units_min_cumulative", alt_ent_class, param_map)
-            flag_limit_cumulative_investments = True
-
+        print(unit_source["name"])
         source_unit_investment_cost = source_db.get_parameter_value_items(entity_class_name="REGION__TECHNOLOGY", entity_name=unit_source["name"], parameter_definition_name="CapitalCost")
         source_unit_fixed_cost = source_db.get_parameter_value_items(entity_class_name="REGION__TECHNOLOGY", entity_name=unit_source["name"], parameter_definition_name="FixedCost")
         source_unit_variable_cost = source_db.get_parameter_value_items(entity_class_name="REGION__TECHNOLOGY", entity_name=unit_source["name"], parameter_definition_name="VariableCost")
@@ -380,8 +367,8 @@ def process_capacities(source_db, target_db, default_unit_capacity):
 
         #calculating the efficiency from InputActivityRatio and OutputActivityRatio
         act_indexes = None
-        input_act_ratio = []
-        output_act_ratio = []
+        input_act_ratio = dict(list())
+        output_act_ratio = dict(list())
         input_act_params = []
         output_act_params = []
         input_names = []
@@ -400,61 +387,59 @@ def process_capacities(source_db, target_db, default_unit_capacity):
                 if temp:
                     output_act_params.extend(temp)
                     output_names.append(rtf_ent["entity_byname"])
-        if input_act_params:
-            for param in input_act_params:
-                mode_map_objects = api.from_database(param["value"], "map")
-                for k, input_map_object in enumerate(mode_map_objects.values):
-                    if k == 0:
-                        input_act_ratio.append({param["alternative_name"]: input_map_object.values})
-                        if act_indexes:
-                            if not act_indexes == input_map_object.indexes:
-                                exit("InputActivityRatio and/or OutputActivityRatio contain inconsistent YEAR indexes for " and rtf_ent["name"])
-                        act_indexes = input_map_object.indexes
-        if output_act_params:
-            for param in output_act_params:
-                mode_map_objects = api.from_database(param["value"], "map")
-                for k, output_map_object in enumerate(mode_map_objects.values):
-                    if k == 0:
-                        output_act_ratio.append({param["alternative_name"]: output_map_object.values})
-                        if act_indexes:
-                            if not act_indexes == output_map_object.indexes:
-                                exit("InputActivityRatio and/or OutputActivityRatio contain inconsistent YEAR indexes")
-                        act_indexes = output_map_object.indexes
 
+        #pairing the alternative and the value for InputActivityRatio and OutputActivityRatio
+        for param in input_act_params:
+            fuel = param["entity_byname"][2]
+            mode_map_objects = api.from_database(param["value"], "map")
+            for k, input_map_object in enumerate(mode_map_objects.values):
+                if k == 0: # taking only the first mode of operation
+                    if fuel not in input_act_ratio.keys():
+                        input_act_ratio[fuel] = []
+                    input_act_ratio[fuel].append({param["alternative_name"]: input_map_object.values})
+                    if act_indexes:
+                        if not act_indexes == input_map_object.indexes:
+                            exit("InputActivityRatio and/or OutputActivityRatio contain inconsistent YEAR indexes for " and rtf_ent["name"])
+                    act_indexes = input_map_object.indexes
+        for param in output_act_params:
+            fuel = param["entity_byname"][2]
+            mode_map_objects = api.from_database(param["value"], "map")
+            for k, output_map_object in enumerate(mode_map_objects.values):
+                if k == 0: # taking only the first mode of operation
+                    if fuel not in output_act_ratio.keys():
+                        output_act_ratio[fuel] = []
+                    output_act_ratio[fuel].append({param["alternative_name"]: output_map_object.values})
+                    if act_indexes:
+                        if not act_indexes == output_map_object.indexes:
+                            exit("InputActivityRatio and/or OutputActivityRatio contain inconsistent YEAR indexes")
+                    act_indexes = output_map_object.indexes
+
+        #calculating the efficiency from InputActivityRatio and OutputActivityRatio
         if len(input_act_ratio) == 1 and len(output_act_ratio) == 1:
-            for alt_i, iar in input_act_ratio[0].items():
-                for alt_o, oar in output_act_ratio[0].items():
+            for alt_i, iar in next(iter(input_act_ratio.values()))[0].items():
+                for alt_o, oar in next(iter(output_act_ratio.values()))[0].items():
                     alt = alternative_name_from_two(alt_i, alt_o, target_db)
-                    #output_map_object.values = [o / i for o, i in zip(oar, iar)]
                     alt_ent_class = (alt, (unit_source["name"],), "unit")
-                    #target_db = ines_transform.add_item_to_DB(target_db, "efficiency", alt_ent_class, output_map_object)
                     target_db = ines_transform.add_item_to_DB(target_db, "efficiency", alt_ent_class, oar[0] / iar[0])
         elif len(input_act_ratio) == 0 and len(output_act_ratio) == 1:
-            for alt_o, oar in output_act_ratio[0].items():
-                alt_ent_class = (alt_o, (unit_source["name"],), "unit")
-                #output_map_object.values = oar
-                #target_db = ines_transform.add_item_to_DB(target_db, "efficiency", alt_ent_class, output_map_object)
-                #target_db = ines_transform.add_item_to_DB(target_db, "efficiency", alt_ent_class, oar[0])
+            pass # no eff can be defined, will use the conversion method: coefficients_only
         elif len(input_act_ratio) == 1 and len(output_act_ratio) == 0:
-            for alt_i, iar in input_act_ratio[0].items():
-                alt_ent_class = (alt_i, (unit_source["name"],), "unit")
-                #input_map_object.values = 1 / iar
-                #target_db = ines_transform.add_item_to_DB(target_db, "efficiency", alt_ent_class, input_map_object)
-                #target_db = ines_transform.add_item_to_DB(target_db, "efficiency", alt_ent_class, 1 / iar[0])
+            pass # no eff can be defined, will use the conversion method: coefficients_only
         elif len(input_act_ratio) == 0 and len(output_act_ratio) == 0:
             print("No InputActivityRatio nor OutputActivityRatio defined for " + unit_source["name"])
             continue
         else:
+            # processing multiple inputs or outputs with their alternatives
             input_list = []
             output_list = []
             alt_set = set()
             alt_list = []
-            for k, input_ar in enumerate(input_act_ratio):
+            for k, input_ar in enumerate(next(iter(input_act_ratio.values()))):
                 input_list.append({})
                 for alt_i, iar in input_ar.items():
                     input_list[k][alt_i] = iar
                     alt_set.add(alt_i)
-            for k, output_ar in enumerate(output_act_ratio):
+            for k, output_ar in enumerate(next(iter(output_act_ratio.values()))):
                 output_list.append({})
                 for alt_o, oar in output_ar.items():
                     output_list[k][alt_o] = oar
@@ -480,14 +465,8 @@ def process_capacities(source_db, target_db, default_unit_capacity):
                     summed_output = [sum(x) for x in zip(*output_values)]
                     summed_input = [sum(x) for x in zip(*input_values)]
                     alt_ent_class = (alt, (unit_source["name"],), "unit")
-                    print(input_act_ratio)
-                    print(output_act_ratio)
-                    print(input_list)
-                    print(input_values)
-                    print(unit_source["name"])
-
                     target_db = ines_transform.add_item_to_DB(target_db, "efficiency", alt_ent_class, summed_output[0] / summed_input[0])
-            if len(output_values) > 1:
+            if len(output_values) > 1: # if there are multiple outputs, we need to fix the ratio of the flows
                 output_1 = None
                 alt_1 = None
                 for k, out in enumerate(output_list):
@@ -507,41 +486,87 @@ def process_capacities(source_db, target_db, default_unit_capacity):
                         output_1 = out[alto]
                         alt_1 = alto
 
+        #choose if limiting input or output capacity
         if len(output_act_ratio) == 1:
-            act_ratio_dict = output_act_ratio[0]
-            act_param = output_act_params[0]
+            if len(next(iter(output_act_ratio.values()))) > 1:
+                exit("There are more than one alternative value for input / output activity_ratio parameters - that is not handled. Unit: " + unit_source["name"])
+            act_ratio_dict = next(iter(output_act_ratio.values()))[0]
             entity_byname = output_names[0]
             entity_byname = (entity_byname[0] + "__" + entity_byname[1], entity_byname[0] + "__" + entity_byname[2])
             class_name = "unit__to_node"
         elif len(input_act_ratio) == 1:
-            act_ratio_dict = input_act_ratio[0]
-            act_param = input_act_params[0]
+            if len(next(iter(input_act_ratio.values()))) > 1:
+                exit("There are more than one alternative value for input / output activity_ratio parameters - that is not handled. Unit: " + unit_source["name"])
+            act_ratio_dict = next(iter(input_act_ratio.values()))[0]
             entity_byname = input_names[0]
             entity_byname = (entity_byname[0] + "__" + entity_byname[2], entity_byname[0] + "__" + entity_byname[1])
             class_name = "node__to_unit"
         else:
             exit("Not handling multiple inputs together with multiple outputs. Error in entity: " + unit_source["name"])
+        
+        # Get the CapacitytoActivityRatio
+        source_CapacitytoActivityRatio = source_db.get_parameter_value_items(entity_class_name="REGION__TECHNOLOGY", entity_name=unit_source["name"], parameter_definition_name="CapacityToActivityUnit")
+        if len(source_CapacitytoActivityRatio) > 1:
+            exit("Multiple alternatives for CapacitytoActivityRatio - not handled")
+        elif len(source_CapacitytoActivityRatio) == 0:
+            capacity_to_activity_ratio = 1
+        else:
+            source_CapacitytoActivityRatio = source_CapacitytoActivityRatio[0]
+            capacity_to_activity_ratio = api.from_database(source_CapacitytoActivityRatio["value"], "float")
 
-        if len(act_ratio_dict) > 1:
-            exit("There are more than one alternative value for input / output activity_ratio parameters - that is not handled. Unit: " + unit_source["name"])
-        for alt_activity, act_ratio in act_ratio_dict.items():
+        # Get the possible capacity of one technology unit
+        source_CapacityOfOneTechnologyUnit = source_db.get_parameter_value_items(entity_class_name="REGION__TECHNOLOGY", entity_name=unit_source["name"], parameter_definition_name="CapacityOfOneTechnologyUnit")
+        if len(source_CapacityOfOneTechnologyUnit) > 1:
+            exit("Multiple alternatives for CapacityOfOneTechnologyUnit - not handled")
+        elif len(source_CapacityOfOneTechnologyUnit) == 0:
+            cap = default_unit_capacity
+        else:
+            source_CapacityOfOneTechnologyUnit = source_CapacityOfOneTechnologyUnit[0]
+            cap = api.from_database(source_CapacityOfOneTechnologyUnit["value"], "map").values[0] * capacity_unit_ratio * capacity_to_activity_ratio
+            if any(x != cap for x in api.from_database(source_CapacityOfOneTechnologyUnit["value"].values, "map").values):
+                exit("CapacityOfOneTechnologyUnit has different values for different years - not handled")
+
+        # Place the capacity, note that the act_ratio_dict contains only one alternative
+        for alt_activity, act_ratio_list in act_ratio_dict.items():
             if class_name == "unit__to_node":
                 unit_byname = (entity_byname[0],)
             if class_name == "node__to_unit":
                 unit_byname = (entity_byname[1],)
-            source_param = api.from_database(act_param["value"], "map")
-            source_param = source_param.values[0]  # Drop mode_of_operation dimension (assuming there is only one)
-            if not np.all(x == source_param.values[0] for x in source_param.values):
+            if any(x != act_ratio_list[0] for x in act_ratio_list):
                 exit("The unit changes it's activity ratio between years - this is not handled. Entity: " + entity_byname)
-            capacity_value = capacity_unit_ratio / source_param.values[0]
+            act_ratio = act_ratio_list[0]
+            unit_capacity =  cap * act_ratio
             alt_ent_class = (alt_activity, entity_byname, class_name)
-            target_db = ines_transform.add_item_to_DB(target_db, "capacity", alt_ent_class, capacity_value)
+            target_db = ines_transform.add_item_to_DB(target_db, "capacity", alt_ent_class, unit_capacity)
+        
+        # Pass number of unit values
+        flag_limit_cumulative_investments = False
+        source_unit_residual_capacity = source_db.get_parameter_value_items(entity_class_name="REGION__TECHNOLOGY", entity_name=unit_source["name"], parameter_definition_name="ResidualCapacity")
+        for param in source_unit_residual_capacity:
+            param_map = api.from_database(param["value"], "map")
+            param_map.values = [x * capacity_unit_ratio * capacity_to_activity_ratio * act_ratio / unit_capacity for x in param_map.values]
+            alt_ent_class = (param["alternative_name"], (unit_source["name"],), "unit")
+            target_db = ines_transform.add_item_to_DB(target_db, "units_existing", alt_ent_class, param_map)
+        source_unit_total_max = source_db.get_parameter_value_items(entity_class_name="REGION__TECHNOLOGY", entity_name=unit_source["name"], parameter_definition_name="TotalAnnualMaxCapacity")
+        for param in source_unit_total_max:
+            param_map = api.from_database(param["value"], "map")
+            param_map.values = [x * capacity_unit_ratio * capacity_to_activity_ratio * act_ratio / unit_capacity for x in param_map.values]
+            alt_ent_class = (param["alternative_name"], (unit_source["name"],), "unit")
+            target_db = ines_transform.add_item_to_DB(target_db, "units_max_cumulative", alt_ent_class, param_map)
+            flag_limit_cumulative_investments = True
+        source_unit_total_min = source_db.get_parameter_value_items(entity_class_name="REGION__TECHNOLOGY", entity_name=unit_source["name"], parameter_definition_name="TotalAnnualMinCapacity")
+        for param in source_unit_total_min:
+            param_map = api.from_database(param["value"], "map")
+            param_map.values = [x * capacity_unit_ratio * capacity_to_activity_ratio * act_ratio / unit_capacity for x in param_map.values]
+            alt_ent_class = (param["alternative_name"], (unit_source["name"],), "unit")
+            target_db = ines_transform.add_item_to_DB(target_db, "units_min_cumulative", alt_ent_class, param_map)
+            flag_limit_cumulative_investments = True
+        
+        for alt_activity, act_ratio in act_ratio_dict.items():    
             flag_allow_investments = False
             alt_inv_cost = alt_activity
             alt_fixed_cost = alt_activity
             for source_param in source_unit_investment_cost:
-                # Not doing this, since it's messy, instead exiting above if more than one act_ratio_dict:
-                # alt = alternative_name_from_two(source_param["alternative_name"], alt_activity, target_db)
                 alt = source_param["alternative_name"]
                 source_param = api.from_database(source_param["value"], "map")
                 source_param.values = [s / a * investment_unit_ratio for s, a in zip(source_param.values, act_ratio)]
@@ -554,8 +579,6 @@ def process_capacities(source_db, target_db, default_unit_capacity):
                     flag_allow_investments = True
                     alt_inv_cost = alt_activity
             for source_param in source_unit_fixed_cost:
-                # Not doing this, since it's messy, instead exiting above if more than one act_ratio_dict:
-                # alt = alternative_name_from_two(source_param["alternative_name"], alt_activity, target_db)
                 alt = source_param["alternative_name"]
                 source_param = api.from_database(source_param["value"], "map")
                 source_param.values = [s / a  * investment_unit_ratio for s, a in zip(source_param.values, act_ratio)]
@@ -611,15 +634,27 @@ def process_capacities(source_db, target_db, default_unit_capacity):
                 alt = source_param["alternative_name"]
                 source_param = api.from_database(source_param["value"], "map")
                 if isinstance(source_param.values[0], api.Map):
-                    #exit("More than one mode_of_operation with variable_cost defined. Can't handle that. Entity: " + unit_byname)
                     print("Only one mode_of_operation is allowed, taking the first one.")
                     source_param = source_param.values[0]  # Bypass mode_of_operation dimension (assume there is only one)
-                #else:
-                #    source_param = source_param.values[0]  # Bypass mode_of_operation dimension (assume there is only one)
                 source_param.values = [s *variable_cost_unit_ratio / a for s, a in zip(source_param.values, act_ratio)]
                 source_param.index_name = "period"
                 alt_ent_class = (alt, entity_byname, class_name)
                 target_db = ines_transform.add_item_to_DB(target_db, "other_operational_cost", alt_ent_class, source_param)
+
+        #add capacity factor
+        for source_capacity_factor in source_db.get_parameter_value_items(entity_class_name="REGION__TECHNOLOGY", entity_name=unit_source["name"], parameter_definition_name="CapacityFactor"):
+            for year_split in year_splits:
+                year_split_data = api.from_database(year_split["value"], year_split["type"])
+                profile_data_divided, p_type = get_timeslice_value(year_split_data, source_capacity_factor, "REGION__TECHNOLOGY", "CapacityFactor",
+                                                                    timeslice_indexes, datetime_indexes, 1.0, False)
+                added, error = target_db.add_parameter_value_item(entity_class_name=class_name,
+                                                        parameter_definition_name="profile_limit_upper",
+                                                        entity_byname=entity_byname,
+                                                        alternative_name=source_capacity_factor["alternative_name"],
+                                                        value=profile_data_divided,
+                                                        type=p_type)
+            target_db = ines_transform.add_item_to_DB(target_db, "profile_method", alt_ent_class, "upper_limit")
+
 
         if (len(output_act_ratio) == 1 and len(input_act_ratio) == 0) or (len(output_act_ratio) == 0 and len(input_act_ratio) == 1):
             for alt_activity, act_ratio in act_ratio_dict.items():
@@ -858,7 +893,6 @@ def process_storages(source_db, target_db):
                                                 parameter_definition_name="StorageMaxChargeRate")
     StorageMaxDischargeRate = source_db.get_parameter_value_items(entity_class_name="REGION__STORAGE",
                                                 parameter_definition_name="StorageMaxDischargeRate")
-
     for rs in region__storages:
         for technology in technologys:
             fromS = False
@@ -1142,7 +1176,6 @@ def process_activity_constraints(source_db, target_db):
                         if val == oa_val:
                             param_map.values[i] = oa_val.values[j] * param_map.values[i]
                             break
-                print("asd")
                 target_db = ines_transform.add_item_to_DB(target_db, "flow_max_cumulative", [param["alternative_name"], (set_name,), "set"], param_map)
                 break #taking the flow from one of the outputs is enough
     
@@ -1211,13 +1244,16 @@ def process_node_types(source_db, target_db):
         print("Failed to commit node_type balance_within_period on nodes with AccumulatedAnnualDemand")
     return target_db
 
-##Check paramters:
+##Check parameters:
 #Done:
 # Emission
 # reMin
 # activity constraints
+# Performance -activity
 
-#### Mode of operation transformation is still missing### 
+### Mode of operation transformation is still missing### 
+### Reserves are not implemented ###
+
 
 ### Passes only one scenario, some parameters are not possible to transform for all alternatives
 
