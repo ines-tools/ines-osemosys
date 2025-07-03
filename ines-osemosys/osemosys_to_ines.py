@@ -66,7 +66,7 @@ def main():
             ## Process demands
             target_db = process_demands(source_db, target_db , datetime_indexes)
             ## Copy capacity specific parameters (manual scripting)
-            target_db = process_capacities(source_db, target_db, datetime_indexes, timeslice_indexes, year_splits, default_unit_capacity=default_unit_size)
+            target_db = process_capacities(source_db, target_db, datetime_indexes, timeslice_indexes, year_splits)
             ## Special model level parameters
             target_db = process_model_level(source_db, target_db)
             ## Process units with zero investment cost
@@ -347,7 +347,7 @@ def add_timeslice_data(source_db, target_db, year_split_data, alternative_name, 
     return target_db
 
 
-def process_capacities(source_db, target_db, datetime_indexes, timeslice_indexes, year_splits, default_unit_capacity):
+def process_capacities(source_db, target_db, datetime_indexes, timeslice_indexes, year_splits):
     region__tech__fuel_entities = source_db.get_entity_items(entity_class_name="REGION__TECHNOLOGY__FUEL")
     TotalAnnualMaxCapacityInvestment = source_db.get_parameter_value_items(entity_class_name="REGION__TECHNOLOGY",
                                                 parameter_definition_name="TotalAnnualMaxCapacityInvestment")
@@ -519,12 +519,13 @@ def process_capacities(source_db, target_db, datetime_indexes, timeslice_indexes
         if len(source_CapacityOfOneTechnologyUnit) > 1:
             exit("Multiple alternatives for CapacityOfOneTechnologyUnit - not handled")
         elif len(source_CapacityOfOneTechnologyUnit) == 0:
-            cap = default_unit_capacity
+            cap = default_unit_size
         else:
             source_CapacityOfOneTechnologyUnit = source_CapacityOfOneTechnologyUnit[0]
-            cap = api.from_database(source_CapacityOfOneTechnologyUnit["value"], "map").values[0] * capacity_unit_ratio * capacity_to_activity_ratio
+            cap = api.from_database(source_CapacityOfOneTechnologyUnit["value"], "map").values[0] * capacity_unit_ratio
             if any(x != cap for x in api.from_database(source_CapacityOfOneTechnologyUnit["value"].values, "map").values):
                 exit("CapacityOfOneTechnologyUnit has different values for different years - not handled")
+            target_db = ines_transform.add_item_to_DB(target_db, "investment_uses_integer", (unit_source["name"],), True)
 
         # Place the capacity, note that the act_ratio_dict contains only one alternative
         for alt_activity, act_ratio_list in act_ratio_dict.items():
@@ -544,20 +545,20 @@ def process_capacities(source_db, target_db, datetime_indexes, timeslice_indexes
         source_unit_residual_capacity = source_db.get_parameter_value_items(entity_class_name="REGION__TECHNOLOGY", entity_name=unit_source["name"], parameter_definition_name="ResidualCapacity")
         for param in source_unit_residual_capacity:
             param_map = api.from_database(param["value"], "map")
-            param_map.values = [x * capacity_unit_ratio * capacity_to_activity_ratio * act_ratio / unit_capacity for x in param_map.values]
+            param_map.values = [x * capacity_unit_ratio * act_ratio / unit_capacity for x in param_map.values]
             alt_ent_class = (param["alternative_name"], (unit_source["name"],), "unit")
             target_db = ines_transform.add_item_to_DB(target_db, "units_existing", alt_ent_class, param_map)
         source_unit_total_max = source_db.get_parameter_value_items(entity_class_name="REGION__TECHNOLOGY", entity_name=unit_source["name"], parameter_definition_name="TotalAnnualMaxCapacity")
         for param in source_unit_total_max:
             param_map = api.from_database(param["value"], "map")
-            param_map.values = [x * capacity_unit_ratio * capacity_to_activity_ratio * act_ratio / unit_capacity for x in param_map.values]
+            param_map.values = [x * capacity_unit_ratio * act_ratio / unit_capacity for x in param_map.values]
             alt_ent_class = (param["alternative_name"], (unit_source["name"],), "unit")
             target_db = ines_transform.add_item_to_DB(target_db, "units_max_cumulative", alt_ent_class, param_map)
             flag_limit_cumulative_investments = True
         source_unit_total_min = source_db.get_parameter_value_items(entity_class_name="REGION__TECHNOLOGY", entity_name=unit_source["name"], parameter_definition_name="TotalAnnualMinCapacity")
         for param in source_unit_total_min:
             param_map = api.from_database(param["value"], "map")
-            param_map.values = [x * capacity_unit_ratio * capacity_to_activity_ratio * act_ratio / unit_capacity for x in param_map.values]
+            param_map.values = [x * capacity_unit_ratio * act_ratio / unit_capacity for x in param_map.values]
             alt_ent_class = (param["alternative_name"], (unit_source["name"],), "unit")
             target_db = ines_transform.add_item_to_DB(target_db, "units_min_cumulative", alt_ent_class, param_map)
             flag_limit_cumulative_investments = True
@@ -569,7 +570,7 @@ def process_capacities(source_db, target_db, datetime_indexes, timeslice_indexes
             for source_param in source_unit_investment_cost:
                 alt = source_param["alternative_name"]
                 source_param = api.from_database(source_param["value"], "map")
-                source_param.values = [s / a * investment_unit_ratio for s, a in zip(source_param.values, act_ratio)]
+                source_param.values = [s * investment_unit_ratio / a for s, a in zip(source_param.values, act_ratio)]
                 source_param.index_name = "period"
                 alt_ent_class = (alt, entity_byname, class_name)
                 target_db = ines_transform.add_item_to_DB(target_db, "investment_cost", alt_ent_class, source_param)
@@ -581,7 +582,7 @@ def process_capacities(source_db, target_db, datetime_indexes, timeslice_indexes
             for source_param in source_unit_fixed_cost:
                 alt = source_param["alternative_name"]
                 source_param = api.from_database(source_param["value"], "map")
-                source_param.values = [s / a  * investment_unit_ratio for s, a in zip(source_param.values, act_ratio)]
+                source_param.values = [s * investment_unit_ratio / a for s, a in zip(source_param.values, act_ratio)]
                 source_param.index_name = "period"
                 alt_ent_class = (alt, entity_byname, class_name)
                 target_db = ines_transform.add_item_to_DB(target_db, "fixed_cost", alt_ent_class, source_param)
@@ -636,7 +637,7 @@ def process_capacities(source_db, target_db, datetime_indexes, timeslice_indexes
                 if isinstance(source_param.values[0], api.Map):
                     print("Only one mode_of_operation is allowed, taking the first one.")
                     source_param = source_param.values[0]  # Bypass mode_of_operation dimension (assume there is only one)
-                source_param.values = [s *variable_cost_unit_ratio / a for s, a in zip(source_param.values, act_ratio)]
+                source_param.values = [s * variable_cost_unit_ratio / a for s, a in zip(source_param.values, act_ratio)]
                 source_param.index_name = "period"
                 alt_ent_class = (alt, entity_byname, class_name)
                 target_db = ines_transform.add_item_to_DB(target_db, "other_operational_cost", alt_ent_class, source_param)
@@ -1137,81 +1138,100 @@ def process_activity_constraints(source_db, target_db):
     TotalTechnologyModelPeriodActivityLowerLimit = source_db.get_parameter_value_items(entity_class_name="REGION__TECHNOLOGY", parameter_definition_name="TotalTechnologyModelPeriodActivityLowerLimit")
     TotalTechnologyModelPeriodActivityUpperLimit = source_db.get_parameter_value_items(entity_class_name="REGION__TECHNOLOGY", parameter_definition_name="TotalTechnologyModelPeriodActivityUpperLimit")
     oa_ratio = source_db.get_parameter_value_items(entity_class_name="REGION__TECHNOLOGY__FUEL", parameter_definition_name="OutputActivityRatio")
-
-    for param in TotalTechnologyAnnualActivityLowerLimit:
-        param_map = api.from_database(param["value"], param["type"])
-        set_name = param["entity_byname"][1] + "_min_annual_activity"
-        ines_transform.assert_success(target_db.add_entity_item(entity_class_name='set', entity_byname=(set_name,)), warn=True)
-        
-        for oa in oa_ratio:
-            if oa["entity_byname"][0] == param["entity_byname"][0] and oa["entity_byname"][1] == param["entity_byname"][1]:
-                unit_name = oa["entity_byname"][0] + "__" + oa["entity_byname"][1]
-                node_name = oa["entity_byname"][0] + "__" + oa["entity_byname"][2]
-                ines_transform.assert_success(target_db.add_entity_item(entity_class_name='set__unit_flow', 
-                                                                        entity_byname=(set_name, unit_name, node_name)), warn=True)
-                oa_ratio_map = api.from_database(oa["value"], oa["type"])
-                for i, val in enumerate(param_map.indexes):
-                    for j, oa_val in enumerate(oa_ratio_map.values):
-                        if val == oa_val:
-                            param_map.values[i] = oa_val.values[j] * param_map.values[i]
-                            break
-                
-                target_db = ines_transform.add_item_to_DB(target_db, "flow_min_cumulative", [param["alternative_name"], (set_name,), "set"], param_map)
-                break #taking the flow from one of the outputs is enough
-
-    for param in TotalTechnologyAnnualActivityUpperLimit:
-        param_map = api.from_database(param["value"], param["type"])
-        set_name = param["entity_byname"][1] + "_max_annual_activity"
-        ines_transform.assert_success(target_db.add_entity_item(entity_class_name='set', entity_byname=(set_name,)), warn=True)
-        
-        for oa in oa_ratio:
-            if oa["entity_byname"][0] == param["entity_byname"][0] and oa["entity_byname"][1] == param["entity_byname"][1]:
-                unit_name = oa["entity_byname"][0] + "__" + oa["entity_byname"][1]
-                node_name = oa["entity_byname"][0] + "__" + oa["entity_byname"][2]
-                ines_transform.assert_success(target_db.add_entity_item(entity_class_name='set__unit_flow', 
-                                                                        entity_byname=(set_name, unit_name, node_name)), warn=True)
-                oa_ratio_map = api.from_database(oa["value"], oa["type"])
-                for i, val in enumerate(param_map.indexes):
-                    for j, oa_val in enumerate(oa_ratio_map.values):
-                        if val == oa_val:
-                            param_map.values[i] = oa_val.values[j] * param_map.values[i]
-                            break
-                target_db = ines_transform.add_item_to_DB(target_db, "flow_max_cumulative", [param["alternative_name"], (set_name,), "set"], param_map)
-                break #taking the flow from one of the outputs is enough
     
-    for param in TotalTechnologyModelPeriodActivityLowerLimit:
-        param_float = api.from_database(param["value"], param["type"])
-        set_name = param["entity_byname"][1] + "_min_model_activity"
-        ines_transform.assert_success(target_db.add_entity_item(entity_class_name='set', entity_byname=(set_name,)), warn=True)
-        
-        for oa in oa_ratio:
-            if oa["entity_byname"][0] == param["entity_byname"][0] and oa["entity_byname"][1] == param["entity_byname"][1]:
-                unit_name = oa["entity_byname"][0] + "__" + oa["entity_byname"][1]
-                node_name = oa["entity_byname"][0] + "__" + oa["entity_byname"][2]
-                ines_transform.assert_success(target_db.add_entity_item(entity_class_name='set__unit_flow', 
-                                                                        entity_byname=(set_name, unit_name, node_name)), warn=True)
-                oa_ratio_map = api.from_database(oa["value"], oa["type"])
-                param_float = param_float * oa_ratio_map.values[0].values[0] #taking the first value of the map, as INES supports only constant oa values
-                
-                target_db = ines_transform.add_item_to_DB(target_db, "flow_min_cumulative", [param["alternative_name"], (set_name,), "set"], param_float)
-                break #taking the flow from one of the outputs is enough
+    for unit_source in source_db.get_entity_items(entity_class_name="REGION__TECHNOLOGY"):
+        # Get the CapacitytoActivityRatio, the activity is energy in year, flow is power
+        source_CapacitytoActivityRatio = source_db.get_parameter_value_items(entity_class_name="REGION__TECHNOLOGY", entity_name=unit_source["name"], parameter_definition_name="CapacityToActivityUnit")
+        if len(source_CapacitytoActivityRatio) > 1:
+            exit("Multiple alternatives for CapacitytoActivityRatio - not handled")
+        elif len(source_CapacitytoActivityRatio) == 0:
+            capacity_to_activity_ratio = 1
+        else:
+            source_CapacitytoActivityRatio = source_CapacitytoActivityRatio[0]
+            capacity_to_activity_ratio = api.from_database(source_CapacitytoActivityRatio["value"], "float")
     
-    for param in TotalTechnologyModelPeriodActivityUpperLimit:
-        param_float = api.from_database(param["value"], param["type"])
-        set_name = param["entity_byname"][1] + "_max_model_activity"
-        ines_transform.assert_success(target_db.add_entity_item(entity_class_name='set', entity_byname=(set_name,)), warn=True)
+        for param in TotalTechnologyAnnualActivityLowerLimit:
+            if param["entity_byname"] != unit_source["entity_byname"]:
+                continue
+            param_map = api.from_database(param["value"], param["type"])
+            set_name = param["entity_byname"][1] + "_min_annual_activity"
+            ines_transform.assert_success(target_db.add_entity_item(entity_class_name='set', entity_byname=(set_name,)), warn=True)
+            
+            for oa in oa_ratio:
+                if oa["entity_byname"][0] == param["entity_byname"][0] and oa["entity_byname"][1] == param["entity_byname"][1]:
+                    unit_name = oa["entity_byname"][0] + "__" + oa["entity_byname"][1]
+                    node_name = oa["entity_byname"][0] + "__" + oa["entity_byname"][2]
+                    ines_transform.assert_success(target_db.add_entity_item(entity_class_name='set__unit_flow', 
+                                                                            entity_byname=(set_name, unit_name, node_name)), warn=True)
+                    oa_ratio_map = api.from_database(oa["value"], oa["type"])
+                    for i, val in enumerate(param_map.indexes):
+                        for j, oa_val in enumerate(oa_ratio_map.values[0].indexes):
+                            if val == oa_val:
+                                param_map.values[i] = oa_ratio_map.values[0].values[j] * param_map.values[i] / capacity_to_activity_ratio
+                                break
+                    
+                    target_db = ines_transform.add_item_to_DB(target_db, "flow_min_cumulative", [param["alternative_name"], (set_name,), "set"], param_map)
+                    break #taking the flow from one of the outputs is enough
+
+        for param in TotalTechnologyAnnualActivityUpperLimit:
+            if param["entity_byname"] != unit_source["entity_byname"]:
+                continue
+            param_map = api.from_database(param["value"], param["type"])
+            set_name = param["entity_byname"][1] + "_max_annual_activity"
+            ines_transform.assert_success(target_db.add_entity_item(entity_class_name='set', entity_byname=(set_name,)), warn=True)
+            
+            for oa in oa_ratio:
+                if oa["entity_byname"][0] == param["entity_byname"][0] and oa["entity_byname"][1] == param["entity_byname"][1]:
+                    unit_name = oa["entity_byname"][0] + "__" + oa["entity_byname"][1]
+                    node_name = oa["entity_byname"][0] + "__" + oa["entity_byname"][2]
+                    ines_transform.assert_success(target_db.add_entity_item(entity_class_name='set__unit_flow', 
+                                                                            entity_byname=(set_name, unit_name, node_name)), warn=True)
+                    oa_ratio_map = api.from_database(oa["value"], oa["type"])
+                    for i, val in enumerate(param_map.indexes):
+                        for j, oa_val in enumerate(oa_ratio_map.values[0].indexes):
+                            if val == oa_val:
+                                param_map.values[i] = oa_ratio_map.values[0].values[j] * param_map.values[i] / capacity_to_activity_ratio
+                                break
+                    target_db = ines_transform.add_item_to_DB(target_db, "flow_max_cumulative", [param["alternative_name"], (set_name,), "set"], param_map)
+                    break #taking the flow from one of the outputs is enough
         
-        for oa in oa_ratio:
-            if oa["entity_byname"][0] == param["entity_byname"][0] and oa["entity_byname"][1] == param["entity_byname"][1]:
-                unit_name = oa["entity_byname"][0] + "__" + oa["entity_byname"][1]
-                node_name = oa["entity_byname"][0] + "__" + oa["entity_byname"][2]
-                ines_transform.assert_success(target_db.add_entity_item(entity_class_name='set__unit_flow', 
-                                                                        entity_byname=(set_name, unit_name, node_name)), warn=True)
-                oa_ratio_map = api.from_database(oa["value"], oa["type"])
-                param_float = param_float * oa_ratio_map.values[0].values[0] #taking the first value of the map, as INES supports only constant oa values
-                
-                target_db = ines_transform.add_item_to_DB(target_db, "flow_max_cumulative", [param["alternative_name"], (set_name,), "set"], param_float)
-                break #taking the flow from one of the outputs is enough
+        for param in TotalTechnologyModelPeriodActivityLowerLimit:
+            if param["entity_byname"] != unit_source["entity_byname"]:
+                continue
+            param_float = api.from_database(param["value"], param["type"])
+            set_name = param["entity_byname"][1] + "_min_model_activity"
+            ines_transform.assert_success(target_db.add_entity_item(entity_class_name='set', entity_byname=(set_name,)), warn=True)
+            
+            for oa in oa_ratio:
+                if oa["entity_byname"][0] == param["entity_byname"][0] and oa["entity_byname"][1] == param["entity_byname"][1]:
+                    unit_name = oa["entity_byname"][0] + "__" + oa["entity_byname"][1]
+                    node_name = oa["entity_byname"][0] + "__" + oa["entity_byname"][2]
+                    ines_transform.assert_success(target_db.add_entity_item(entity_class_name='set__unit_flow', 
+                                                                            entity_byname=(set_name, unit_name, node_name)), warn=True)
+                    oa_ratio_map = api.from_database(oa["value"], oa["type"])
+                    param_float = param_float * oa_ratio_map.values[0].values[0] / capacity_to_activity_ratio #taking the first value of the map, as INES supports only constant oa values
+                    
+                    target_db = ines_transform.add_item_to_DB(target_db, "flow_min_cumulative", [param["alternative_name"], (set_name,), "set"], param_float)
+                    break #taking the flow from one of the outputs is enough
+        
+        for param in TotalTechnologyModelPeriodActivityUpperLimit:
+            if param["entity_byname"] != unit_source["entity_byname"]:
+                continue
+            param_float = api.from_database(param["value"], param["type"])
+            set_name = param["entity_byname"][1] + "_max_model_activity"
+            ines_transform.assert_success(target_db.add_entity_item(entity_class_name='set', entity_byname=(set_name,)), warn=True)
+            
+            for oa in oa_ratio:
+                if oa["entity_byname"][0] == param["entity_byname"][0] and oa["entity_byname"][1] == param["entity_byname"][1]:
+                    unit_name = oa["entity_byname"][0] + "__" + oa["entity_byname"][1]
+                    node_name = oa["entity_byname"][0] + "__" + oa["entity_byname"][2]
+                    ines_transform.assert_success(target_db.add_entity_item(entity_class_name='set__unit_flow', 
+                                                                            entity_byname=(set_name, unit_name, node_name)), warn=True)
+                    oa_ratio_map = api.from_database(oa["value"], oa["type"])
+                    param_float = param_float * oa_ratio_map.values[0].values[0] / capacity_to_activity_ratio  #taking the first value of the map, as INES supports only constant oa values
+                    
+                    target_db = ines_transform.add_item_to_DB(target_db, "flow_max_cumulative", [param["alternative_name"], (set_name,), "set"], param_float)
+                    break #taking the flow from one of the outputs is enough
 
     return target_db
 
@@ -1246,10 +1266,12 @@ def process_node_types(source_db, target_db):
 
 ##Check parameters:
 #Done:
-# Emission
+# Emission - EmissionActivityRatio probably wrong
 # reMin
 # activity constraints
 # Performance -activity
+# Costs
+# 
 
 ### Mode of operation transformation is still missing### 
 ### Reserves are not implemented ###

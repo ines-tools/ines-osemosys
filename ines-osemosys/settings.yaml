@@ -1,14 +1,14 @@
 # this alternative is used for new infomation, not those that are passed from the Osemosys database.
 default_alternative: "base"
 
-unlimited_unit_capacity: 100000
-default_unit_size: 1000
-unit_to_penalty_boundary: 99999
+unlimited_unit_capacity: 100000 #MW
+default_unit_size: 10   #MW
+unit_to_penalty_boundary: 99999 #MW
 
 #all units are converted to MW, MWh, CUR/MW or CUR/MWh. 
 #Some are presented as annual values in OSEMOSYS. Ratio to power and ratio to hour are both included here.
-capacity_unit_to_MW_ratio: 1.0 
+capacity_unit_to_MW_ratio: 2.0 
 storage_capacity_unit_to_MWh_ratio: 8.76
-demand_unit_to_MWh_ratio: 277777.78
-investment_unit_to_CUR/MW_ratio: 1000000
-variable_cost_unit_to_CUR/MW_ratio: 1000000
+demand_unit_to_MWh_ratio: 31536
+investment_unit_to_CUR/MW_ratio: 1000
+variable_cost_unit_to_CUR/MW_ratio: 1000
