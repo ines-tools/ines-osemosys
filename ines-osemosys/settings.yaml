@@ -11,4 +11,5 @@ capacity_unit_to_MW_ratio: 2.0
 storage_capacity_unit_to_MWh_ratio: 8.76
 demand_unit_to_MWh_ratio: 31536
 investment_unit_to_CUR/MW_ratio: 1000
+storage_investment_unit_to_CUR/MWh_ratio: 1000
 variable_cost_unit_to_CUR/MW_ratio: 1000

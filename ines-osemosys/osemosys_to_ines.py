@@ -281,25 +281,25 @@ def process_timeslice_data(source_db, target_db, read_separate_csv):
                                                           parameter_definition_name="YearSplit")
     for year_split in year_splits:
         year_split_data = api.from_database(year_split["value"], year_split["type"])
-        target_db = add_timeslice_data(source_db, target_db, year_split_data, year_split["alternative_name"],
+        target_db = add_timeslice_data(source_db, target_db, year_split_data, time_durations,
                                        "REGION__FUEL", "SpecifiedDemandProfile", "node", "flow_profile",
                                        timeslice_indexes, datetime_indexes, -1.0, True)
-        #target_db = add_timeslice_data(source_db, target_db, year_split_data, year_split["alternative_name"],
+        #target_db = add_timeslice_data(source_db, target_db, year_split_data,
         #                               "REGION__TECHNOLOGY", "CapacityFactor", "unit", "availability",
         #                               timeslice_indexes, datetime_indexes, 1.0, False)
     return target_db, datetime_indexes, timeslice_indexes, year_splits
 
 
-def get_timeslice_value(year_split_data, source_params, source_class,
+def get_timeslice_value(year_split_data, source_param, source_class,
                        source_param_name, timeslice_indexes, datetime_indexes,
-                       multiplier, scale_with_time):
-    profile_data = source_params["parsed_value"]
+                       multiplier, scale_with_time, time_durations = None):
+    profile_data = source_param["parsed_value"]
     timeslice_profiles = {}
     for s, profile_data_by_slices in enumerate(profile_data.values):
         if scale_with_time:
             timeslice_profiles[profile_data.indexes[s]] = multiplier * \
                                                             round(float(profile_data_by_slices.values[0]) /  # Note that this takes the first value from the array of years (first year)
-                                                                float(year_split_data.values[s].values[0]), 6)
+                                                                float(year_split_data.values[s].values[0]), 6) /8760
         else:
             timeslice_profiles[profile_data.indexes[s]] = multiplier * \
                                                             round(float(profile_data_by_slices.values[0]), 6)  # Note that this takes the first value from the array of years (first year)
@@ -309,6 +309,8 @@ def get_timeslice_value(year_split_data, source_params, source_class,
             print(f'Timeslice index {timeslice_index} not found in timeslice profiles for {source_class["name"]} parameter {source_param_name}')
             sys.exit(-1)
         datetime_profiles.append(timeslice_profiles[timeslice_index])
+    if scale_with_time:
+        datetime_profiles = [round(float(dp) * time_durations[t], 6) for t, dp in enumerate(datetime_profiles)]
     to_db_profile_data = api.TimeSeriesVariableResolution(
         datetime_indexes,
         datetime_profiles,
@@ -319,22 +321,22 @@ def get_timeslice_value(year_split_data, source_params, source_class,
     
     return profile_data_divided, p_type,
 
-def add_timeslice_data(source_db, target_db, year_split_data, alternative_name, source_class_name,
+def add_timeslice_data(source_db, target_db, year_split_data, time_durations, source_class_name,
                        source_param_name, target_class_name, target_param_name, timeslice_indexes, datetime_indexes,
                        multiplier, scale_with_time):
     for source_class in source_db.get_entity_items(entity_class_name=source_class_name):
-        for source_params in source_db.get_parameter_value_items(entity_class_name=source_class_name,
+        for source_param in source_db.get_parameter_value_items(entity_class_name=source_class_name,
                                                                  entity_name=source_class["name"],
-                                                                 parameter_definition_name=source_param_name,
-                                                                 alternative_name=alternative_name):
+                                                                 parameter_definition_name=source_param_name):
             
-            profile_data_divided, p_type = get_timeslice_value(year_split_data, source_params, source_class, source_param_name, 
-                                                               timeslice_indexes, datetime_indexes, multiplier, scale_with_time)
-            target_entity_byname = tuple(['__'.join(source_params["entity_byname"])])
+            profile_data_divided, p_type = get_timeslice_value(year_split_data, source_param, source_class, source_param_name, 
+                                                               timeslice_indexes, datetime_indexes, multiplier, scale_with_time, 
+                                                               time_durations = time_durations)
+            target_entity_byname = tuple(['__'.join(source_param["entity_byname"])])
             added, error = target_db.add_parameter_value_item(entity_class_name=target_class_name,
                                                                 parameter_definition_name=target_param_name,
                                                                 entity_byname=target_entity_byname,
-                                                                alternative_name=alternative_name,
+                                                                alternative_name=source_param["alternative_name"],
                                                                 value=profile_data_divided,
                                                                 type=p_type)
             if error:
@@ -563,6 +565,22 @@ def process_capacities(source_db, target_db, datetime_indexes, timeslice_indexes
             target_db = ines_transform.add_item_to_DB(target_db, "units_min_cumulative", alt_ent_class, param_map)
             flag_limit_cumulative_investments = True
         
+        for param in TotalAnnualMaxCapacityInvestment:
+            if param["entity_byname"] == unit_source["entity_byname"]:
+                param_map = api.from_database(param["value"], "map")
+                param_map.values = [x * capacity_unit_ratio * act_ratio / unit_capacity for x in param_map.values]
+                param_map.index_name = "period"
+                alt_ent_class = (param["alternative_name"], (unit_source["name"],), "unit")
+                target_db = ines_transform.add_item_to_DB(target_db, "units_invest_max_period", alt_ent_class, param_map)
+
+        for param in TotalAnnualMinCapacityInvestment:
+            if param["entity_byname"] == unit_source["entity_byname"]:
+                param_map = api.from_database(param["value"], "map")
+                param_map.values = [x * capacity_unit_ratio * act_ratio / unit_capacity for x in param_map.values]
+                param_map.index_name = "period"
+                alt_ent_class = (param["alternative_name"], (unit_source["name"],), "unit")
+                target_db = ines_transform.add_item_to_DB(target_db, "units_invest_min_period", alt_ent_class, param_map)
+        
         for alt_activity, act_ratio in act_ratio_dict.items():    
             flag_allow_investments = False
             alt_inv_cost = alt_activity
@@ -669,22 +687,6 @@ def process_capacities(source_db, target_db, datetime_indexes, timeslice_indexes
         if not (source_unit_residual_capacity or source_unit_investment_cost):
             print("Unit without capacity or investment_cost:" + unit_source["name"])
     
-        for param in TotalAnnualMaxCapacityInvestment:
-            if param["entity_byname"] == unit_source["name"]:
-                param_map = api.from_database(param["value"], "map")
-                param_map.values = [x * capacity_unit_ratio / unit_capacity for x in param_map.values]
-                param_map.index_name = "period"
-                alt_ent_class = (param["alternative_name"], (param["name"],), "unit")
-                target_db = ines_transform.add_item_to_DB(target_db, "units_invest_max_period", alt_ent_class, param_map)
-
-        for param in TotalAnnualMinCapacityInvestment:
-            if param["entity_byname"] == unit_source["name"]:
-                param_map = api.from_database(param["value"], "map")
-                param_map.values = [x * capacity_unit_ratio / unit_capacity for x in param_map.values]
-                param_map.index_name = "period"
-                alt_ent_class = (param["alternative_name"], (param["name"],), "unit")
-                target_db = ines_transform.add_item_to_DB(target_db, "units_invest_min_period", alt_ent_class, param_map)
-
     try:
         target_db.commit_session("Added capacity related parameter values")
     except:
@@ -884,6 +886,8 @@ def process_storages(source_db, target_db):
                                                 parameter_definition_name="TechnologyFromStorage")
     TechnologyToStorage = source_db.get_parameter_value_items(entity_class_name="REGION__TECHNOLOGY__STORAGE",
                                                 parameter_definition_name="TechnologyToStorage")
+    StorageLevelStart = source_db.get_parameter_value_items(entity_class_name="REGION__STORAGE",
+                                                parameter_definition_name="StorageLevelStart")
     ResidualStorageCapacity = source_db.get_parameter_value_items(entity_class_name="REGION__STORAGE",
                                                 parameter_definition_name="ResidualStorageCapacity")
     CapitalCostStorage = source_db.get_parameter_value_items(entity_class_name="REGION__STORAGE",
@@ -895,14 +899,15 @@ def process_storages(source_db, target_db):
     StorageMaxDischargeRate = source_db.get_parameter_value_items(entity_class_name="REGION__STORAGE",
                                                 parameter_definition_name="StorageMaxDischargeRate")
     for rs in region__storages:
+        storage_capacity = None
         for technology in technologys:
             fromS = False
             toS = False
             for TechFS in TechnologyFromStorage: 
-                if TechFS["entity_byname"][0] == technology["entity_byname"][0] and TechFS["entity_byname"][0] == rs["entity_byname"][0] and TechFS["entity_byname"][2] == rs["entity_byname"][1]:
+                if TechFS["entity_byname"][1] == technology["entity_byname"][0] and TechFS["entity_byname"][0] == rs["entity_byname"][0] and TechFS["entity_byname"][2] == rs["entity_byname"][1]:
                     fromS = True
             for TechTS in TechnologyToStorage: 
-                if TechTS["entity_byname"][0] == technology["entity_byname"][0] and TechTS["entity_byname"][0] == rs["entity_byname"][0] and TechTS["entity_byname"][2] == rs["entity_byname"][1]:
+                if TechTS["entity_byname"][1] == technology["entity_byname"][0] and TechTS["entity_byname"][0] == rs["entity_byname"][0] and TechTS["entity_byname"][2] == rs["entity_byname"][1]:
                     toS = True
             if fromS and toS:
                 unit_name = f'{TechFS["entity_byname"][0]+"__"+TechFS["entity_byname"][1]}'
@@ -910,30 +915,52 @@ def process_storages(source_db, target_db):
                 p_value, p_type = api.to_database(unit_conversion_method)
                 added, updated, error = target_db.add_update_parameter_value_item(entity_class_name="unit",
                                                                     entity_byname=(unit_name,),
-                                                                    alternative_name= technology["entity_alternative_name"],
+                                                                    alternative_name=TechFS["alternative_name"],
                                                                     parameter_definition_name="conversion_method",
                                                                     type=p_type,
                                                                     value=p_value)
-        
-    for param in ResidualStorageCapacity:
-        alt_ent_class = (param["alternative_name"], (param["entity_byname"][0]+"__"+param["entity_byname"][1],), "node")
-        param_map = api.from_database(param["value"], param["type"])
-        if isinstance(param_map, float):
-            target_db = ines_transform.add_item_to_DB(target_db, "storage_capacity", alt_ent_class, param_map * storage_unit_ratio)
-            target_db = ines_transform.add_item_to_DB(target_db, "storages_existing", alt_ent_class, 1.0)
-        else:
-            storage_capacity = param_map.values[0]
-            param_map.values = [x * storage_unit_ratio / storage_capacity for x in param_map.values]
-            target_db = ines_transform.add_item_to_DB(target_db, "storage_capacity", alt_ent_class, storage_capacity * storage_unit_ratio)
-            target_db = ines_transform.add_item_to_DB(target_db, "storages_existing", alt_ent_class, param_map)
-                        
+                # add node_toUnit relationship
+                entity_byname = (rs["entity_byname"][0] + "__" + rs["entity_byname"][1], unit_name)
+                ines_transform.assert_success(target_db.add_entity_item(entity_class_name='node__to_unit', entity_byname=entity_byname), warn=True)
+            elif fromS:
+                # add node_toUnit relationship
+                entity_byname = (rs["entity_byname"][0] + "__" + rs["entity_byname"][1], unit_name)
+                ines_transform.assert_success(target_db.add_entity_item(entity_class_name='node__to_unit', entity_byname=entity_byname), warn=True)
+            elif toS:
+                # add unit_toNode relationship
+                entity_byname = (unit_name, rs["entity_byname"][0] + "__" + rs["entity_byname"][1])
+                ines_transform.assert_success(target_db.add_entity_item(entity_class_name='unit__to_node', entity_byname=entity_byname), warn=True)
+    
+        for param in ResidualStorageCapacity:
+            if param["entity_byname"] == rs["entity_byname"]:
+                alt_ent_class = (param["alternative_name"], (param["entity_byname"][0]+"__"+param["entity_byname"][1],), "node")
+                param_map = api.from_database(param["value"], param["type"])
+                if isinstance(param_map, float):
+                    target_db = ines_transform.add_item_to_DB(target_db, "storage_capacity", alt_ent_class, param_map * storage_unit_ratio)
+                    target_db = ines_transform.add_item_to_DB(target_db, "storages_existing", alt_ent_class, 1.0)
+                    storage_capacity = param_map
+                else:
+                    storage_capacity = param_map.values[0]
+                    param_map.values = [x / storage_capacity for x in param_map.values]
+                    target_db = ines_transform.add_item_to_DB(target_db, "storage_capacity", alt_ent_class, storage_capacity * storage_unit_ratio)
+                    target_db = ines_transform.add_item_to_DB(target_db, "storages_existing", alt_ent_class, param_map)
+                    storage_capacity = storage_capacity
+
+        for param in StorageLevelStart:
+            if param["entity_byname"] == rs["entity_byname"]:
+                alt_ent_class = (param["alternative_name"], (param["entity_byname"][0]+"__"+param["entity_byname"][1],), "node")
+                param_float = api.from_database(param["value"], param["type"])
+                if isinstance(param_float, float) and storage_capacity:
+                    target_db = ines_transform.add_item_to_DB(target_db, "storage_state_fix", alt_ent_class, param_float/storage_capacity)
+                    target_db = ines_transform.add_item_to_DB(target_db, "storage_state_fix_method", alt_ent_class, "fix_start")
+
     for param in CapitalCostStorage:
         alt_ent_class = (param["alternative_name"], (param["entity_byname"][0]+"__"+param["entity_byname"][1],), "node")
         param_map = api.from_database(param["value"], param["type"])
         if isinstance(param_map, float):
-            target_db = ines_transform.add_item_to_DB(target_db, "storage_investment_cost", alt_ent_class, param_map / storage_unit_ratio)
+            target_db = ines_transform.add_item_to_DB(target_db, "storage_investment_cost", alt_ent_class, param_map * storage_investment_unit_ratio)
         else:
-            param_map.values = [x * investment_unit_ratio / storage_unit_ratio for x in param_map.values]
+            param_map.values = [x * storage_investment_unit_ratio for x in param_map.values]
             target_db = ines_transform.add_item_to_DB(target_db, "storage_investment_cost", alt_ent_class, param_map)
 
     for param in MinStorageCharge:
@@ -946,7 +973,7 @@ def process_storages(source_db, target_db):
         set_name = f"set_charge_{param["entity_byname"][0]}_{param["entity_byname"][1]}"
         ines_transform.assert_success(target_db.add_entity_item(entity_class_name='set', entity_byname=(set_name,)), warn=True)
         constant_value =  api.from_database(param["value"], param["type"])
-        target_db = ines_transform.add_item_to_DB(target_db, "flow_max_cumulative", [param["alternative_name"],(set_name,),'set'], constant_value) 
+        target_db = ines_transform.add_item_to_DB(target_db, "flow_max_instant", [param["alternative_name"],(set_name,),'set'], constant_value * capacity_unit_ratio) 
         #add flows to the set
         for TechTS in TechnologyToStorage:
             entity_byname = TechTS["entity_byname"]
@@ -960,9 +987,9 @@ def process_storages(source_db, target_db):
         set_name = f"set_discharge_{param["entity_byname"][0]}_{param["entity_byname"][1]}"
         ines_transform.assert_success(target_db.add_entity_item(entity_class_name='set', entity_byname=(set_name,)), warn=True)
         constant_value =  api.from_database(param["value"], param["type"])
-        target_db = ines_transform.add_item_to_DB(target_db, "flow_max_cumulative", [param["alternative_name"],(set_name,),'set'], constant_value) 
+        target_db = ines_transform.add_item_to_DB(target_db, "flow_max_instant", [param["alternative_name"],(set_name,),'set'], constant_value* capacity_unit_ratio) 
         #add flows to the set
-        for TechFS in TechnologyToStorage:
+        for TechFS in TechnologyFromStorage:
             entity_byname = TechFS["entity_byname"]
             if TechFS["entity_byname"][0] == param["entity_byname"][0] and TechFS["entity_byname"][2] == param["entity_byname"][1]:
                 ines_transform.assert_success(target_db.add_entity_item(entity_class_name='set__unit_flow', 
@@ -1005,12 +1032,13 @@ def process_emissions(source_db, target_db):
             param_name = "co2_content"
             for oa_ratio in output_act_ratios:
                 if oa_ratio["entity_byname"][0] == param["entity_byname"][0] and oa_ratio["entity_byname"][1] == param["entity_byname"][1]:
+                    oa_ratio_val = oa_ratio["parsed_value"].values[0].values[0]
                     node_name = f'{oa_ratio["entity_byname"][1]}_CO2_commodity'
                     ines_transform.assert_success(target_db.add_entity_item(entity_class_name='node', entity_byname=(node_name,)), warn=True)
                     entity_byname = (node_name, oa_ratio["entity_byname"][0] + "__" + oa_ratio["entity_byname"][1],)
                     ines_transform.assert_success(target_db.add_entity_item(entity_class_name='node__to_unit', entity_byname=entity_byname), warn=True)
                     alt_ent_class = (param["alternative_name"], (node_name,), "node")
-                    target_db = ines_transform.add_item_to_DB(target_db, param_name, alt_ent_class, param_map)
+                    target_db = ines_transform.add_item_to_DB(target_db, param_name, alt_ent_class, param_map*oa_ratio_val)
                     target_db = ines_transform.add_item_to_DB(target_db, "node_type", alt_ent_class, "commodity")
         else:
             if any(x in param["entity_byname"][2] for x in ["NOX", "nox"]):
@@ -1021,9 +1049,10 @@ def process_emissions(source_db, target_db):
                 continue
             for oa_ratio in output_act_ratios:
                 if oa_ratio["entity_byname"][0] == param["entity_byname"][0] and oa_ratio["entity_byname"][1] == param["entity_byname"][1]:
+                    oa_ratio_val = oa_ratio["parsed_value"].values[0].values[0]
                     entity_byname = (oa_ratio["entity_byname"][0] + "__" + oa_ratio["entity_byname"][1], oa_ratio["entity_byname"][0] + "__" + oa_ratio["entity_byname"][2])
                     alt_ent_class = (param["alternative_name"], entity_byname, "unit__to_node")
-                    target_db = ines_transform.add_item_to_DB(target_db, param_name, alt_ent_class, param_map)
+                    target_db = ines_transform.add_item_to_DB(target_db, param_name, alt_ent_class, param_map*oa_ratio_val)
 
     for param in EmissionsPenalty:
         if any(x in param["entity_byname"][1] for x in ["CO2", "co2", "C02"]):
@@ -1167,7 +1196,7 @@ def process_activity_constraints(source_db, target_db):
                     for i, val in enumerate(param_map.indexes):
                         for j, oa_val in enumerate(oa_ratio_map.values[0].indexes):
                             if val == oa_val:
-                                param_map.values[i] = oa_ratio_map.values[0].values[j] * param_map.values[i] / capacity_to_activity_ratio
+                                param_map.values[i] = oa_ratio_map.values[0].values[j] * param_map.values[i] / capacity_to_activity_ratio * 8760
                                 break
                     
                     target_db = ines_transform.add_item_to_DB(target_db, "flow_min_cumulative", [param["alternative_name"], (set_name,), "set"], param_map)
@@ -1190,7 +1219,7 @@ def process_activity_constraints(source_db, target_db):
                     for i, val in enumerate(param_map.indexes):
                         for j, oa_val in enumerate(oa_ratio_map.values[0].indexes):
                             if val == oa_val:
-                                param_map.values[i] = oa_ratio_map.values[0].values[j] * param_map.values[i] / capacity_to_activity_ratio
+                                param_map.values[i] = oa_ratio_map.values[0].values[j] * param_map.values[i] / capacity_to_activity_ratio * 8760
                                 break
                     target_db = ines_transform.add_item_to_DB(target_db, "flow_max_cumulative", [param["alternative_name"], (set_name,), "set"], param_map)
                     break #taking the flow from one of the outputs is enough
@@ -1209,7 +1238,7 @@ def process_activity_constraints(source_db, target_db):
                     ines_transform.assert_success(target_db.add_entity_item(entity_class_name='set__unit_flow', 
                                                                             entity_byname=(set_name, unit_name, node_name)), warn=True)
                     oa_ratio_map = api.from_database(oa["value"], oa["type"])
-                    param_float = param_float * oa_ratio_map.values[0].values[0] / capacity_to_activity_ratio #taking the first value of the map, as INES supports only constant oa values
+                    param_float = param_float * oa_ratio_map.values[0].values[0] / capacity_to_activity_ratio * 8760 #taking the first value of the map, as INES supports only constant oa values
                     
                     target_db = ines_transform.add_item_to_DB(target_db, "flow_min_cumulative", [param["alternative_name"], (set_name,), "set"], param_float)
                     break #taking the flow from one of the outputs is enough
@@ -1228,7 +1257,7 @@ def process_activity_constraints(source_db, target_db):
                     ines_transform.assert_success(target_db.add_entity_item(entity_class_name='set__unit_flow', 
                                                                             entity_byname=(set_name, unit_name, node_name)), warn=True)
                     oa_ratio_map = api.from_database(oa["value"], oa["type"])
-                    param_float = param_float * oa_ratio_map.values[0].values[0] / capacity_to_activity_ratio  #taking the first value of the map, as INES supports only constant oa values
+                    param_float = param_float * oa_ratio_map.values[0].values[0] / capacity_to_activity_ratio * 8760  #taking the first value of the map, as INES supports only constant oa values
                     
                     target_db = ines_transform.add_item_to_DB(target_db, "flow_max_cumulative", [param["alternative_name"], (set_name,), "set"], param_float)
                     break #taking the flow from one of the outputs is enough
@@ -1266,12 +1295,14 @@ def process_node_types(source_db, target_db):
 
 ##Check parameters:
 #Done:
-# Emission - EmissionActivityRatio probably wrong
+# Emission
 # reMin
 # activity constraints
 # Performance -activity
 # Costs
-# 
+# Demand
+# Storage - StorageMaxChargeRate, when two way technology. Consider the possibility of splitting that unit
+# Capacity constraints
 
 ### Mode of operation transformation is still missing### 
 ### Reserves are not implemented ###
@@ -1326,6 +1357,8 @@ if __name__ == "__main__":
     storage_unit_ratio = float(settings["storage_capacity_unit_to_MWh_ratio"])
     demand_unit_ratio = float(settings["demand_unit_to_MWh_ratio"])
     investment_unit_ratio = float(settings["investment_unit_to_CUR/MW_ratio"])
+    storage_investment_unit_ratio = float(settings["storage_investment_unit_to_CUR/MWh_ratio"])
     variable_cost_unit_ratio = float(settings["variable_cost_unit_to_CUR/MW_ratio"])
+    
     main()
 

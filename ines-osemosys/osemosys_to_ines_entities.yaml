@@ -28,8 +28,6 @@ REGION__TECHNOLOGY__FUEL:
 REGION__TECHNOLOGY__STORAGE:
   - node: [[1, 3]]
   - set__node: [[1], [1, 3]]
-  - unit__to_node: [[1, 2], [1, 3], TechnologyToStorage]
-  - node__to_unit: [[1, 3], [1, 2], TechnologyFromStorage]
   
 
 #region__technology__emission:   needs to be converted manually, since emissions in ines-spec are hard-coded
