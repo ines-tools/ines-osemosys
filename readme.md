@@ -26,37 +26,19 @@ This is an outline - content needs to be added
 Not implemented as of yet.
 
 ## Missing conversions from OSeMOSYS data to ines-spec (these are ignored at the moment)
+The large concepts missing are mode of operation and reserves. The transformation will only take the first of the modes of operation. INES does not have representation of two separate points of efficiency curve and costs.
+Reserves are completely missing. The reason is that the reserve formulation in OSeMOSYS is too broad and with too many options for the user. This prevents the automatic transformation.
+
+Below is a list of parameters that are not transferred:
 
 - REGION
-  - REMinProductionTarget
   - ReserveMargin
   - DepreciationMethod
 - REGION__FUEL
-  - RETagFuel
   - ReserveMarginTagFuel
 - REGION__TECHNOLOGY
   - AvailabilityFactor  (In OSeMOSYS this is annual value, while CapacityFactor is also for timeslices - we only take CapacityFactor at the moment)
-  - RETagTechnology
-  - CapacityOfOneTechnologyUnit (This is meant for MIP problems, instead capacity of 1000 MW is assumed for all units since OSeMOSYS does not sepately define unit size)
-  - CapacityToActivityUnit (Converts capacity to annual energy, unclear how it really works)
   - ReserveMarginTagTechnology
-  - TotalAnnualMaxCapacityInvestment
-  - TotalAnnualMinCapacityInvestment
-  - TotalTechnologyAnnualActivityLowerLimit
-  - TotalTechnologyAnnualActivityUpperLimit
-  - TotalTechnologyModelPeriodActivityLowerLimit
-  - TotalTechnologyModelPeriodActivityUpperLimit
-- REGION_STORAGE
-  - MinStorageCharge
-  - StorageLevelStart
-  - StorageMaxChargeRate
-- REGION__TECHNOLOGY__STORAGE:
-  - TechnologyFromStorage  (unnecessary flags, since these are represented by directionality in ines)
-  - TechnologyToStorage  (unnecessary flags, since these are represented by directionality in ines)
-- REGION__EMISSION:
-  - AnnualEmissionLimit
-- REGION__TECHNOLOGY__EMISSION:
-  - EmissionActivityRatio
 - REGION__REGION__FUEL:
   - TradeRoute
   
