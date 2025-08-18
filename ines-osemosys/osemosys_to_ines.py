@@ -26,15 +26,9 @@ def main():
             target_db.refresh_session()
             target_db.commit_session("Purged stuff")
 
-            # start = time.process_time()
             source_db.fetch_all('entity_class')
-            # print(time.process_time() - start)
-            # start = time.process_time()
             source_db.fetch_all('entity')
-            # print(time.process_time() - start)
-            # start = time.process_time()
             source_db.fetch_all('parameter_value')
-            # print(time.process_time() - start)
             ## Copy scenarios alternatives
             for alternative in source_db.get_alternative_items():
                 target_db.add_alternative_item(name=alternative["name"])
@@ -655,7 +649,7 @@ def process_capacities(source_db, target_db, datetime_indexes, timeslice_indexes
                 if isinstance(source_param.values[0], api.Map):
                     print("Only one mode_of_operation is allowed, taking the first one.")
                     source_param = source_param.values[0]  # Bypass mode_of_operation dimension (assume there is only one)
-                source_param.values = [s * variable_cost_unit_ratio / a for s, a in zip(source_param.values, act_ratio)]
+                source_param.values = [s * variable_cost_unit_ratio / a / 8760 for s, a in zip(source_param.values, act_ratio)]
                 source_param.index_name = "period"
                 alt_ent_class = (alt, entity_byname, class_name)
                 target_db = ines_transform.add_item_to_DB(target_db, "other_operational_cost", alt_ent_class, source_param)
@@ -748,6 +742,7 @@ def process_zero_investment_cost(source_db, target_db):
             flag_invest_zero = False
             flag_fixed_zero = False
             flag_existing_zero = False
+            flag_operational_life_zero = False
             invest_cost = source_db.get_parameter_value_item(entity_class_name="REGION__TECHNOLOGY",
                                                              entity_byname=unit["entity_byname"],
                                                              alternative_name=alt["name"],
@@ -760,6 +755,11 @@ def process_zero_investment_cost(source_db, target_db):
                                                           entity_byname=unit["entity_byname"],
                                                           alternative_name=alt["name"],
                                                           parameter_definition_name="ResidualCapacity")
+            operational_life = source_db.get_parameter_value_item(entity_class_name="REGION__TECHNOLOGY",
+                                                          entity_byname=unit["entity_byname"],
+                                                          alternative_name=alt["name"],
+                                                          parameter_definition_name="OperationalLife")
+            
             if invest_cost:
                 for i in invest_cost["parsed_value"].values:
                     if i == 0:
@@ -781,6 +781,17 @@ def process_zero_investment_cost(source_db, target_db):
                         break
             else:
                 flag_existing_zero = True
+            if operational_life:
+                for e in existing["parsed_value"].values:
+                    if e == 0:
+                        flag_operational_life_zero = True
+                        break
+            else:
+                flag_operational_life_zero = True
+
+            if flag_existing_zero and flag_operational_life_zero:
+                break #if no operational life, unit cannot be invested in osemosys, if also no residual capacity, the unit does not exist.
+
             if flag_invest_zero and flag_fixed_zero and flag_existing_zero:
                 variable_cost = source_db.get_parameter_value_item(entity_class_name="REGION__TECHNOLOGY",
                                                                    entity_byname=unit["entity_byname"],
@@ -886,18 +897,13 @@ def process_storages(source_db, target_db):
                                                 parameter_definition_name="TechnologyFromStorage")
     TechnologyToStorage = source_db.get_parameter_value_items(entity_class_name="REGION__TECHNOLOGY__STORAGE",
                                                 parameter_definition_name="TechnologyToStorage")
-    StorageLevelStart = source_db.get_parameter_value_items(entity_class_name="REGION__STORAGE",
-                                                parameter_definition_name="StorageLevelStart")
-    ResidualStorageCapacity = source_db.get_parameter_value_items(entity_class_name="REGION__STORAGE",
-                                                parameter_definition_name="ResidualStorageCapacity")
-    CapitalCostStorage = source_db.get_parameter_value_items(entity_class_name="REGION__STORAGE",
-                                                parameter_definition_name="CapitalCostStorage")
-    MinStorageCharge = source_db.get_parameter_value_items(entity_class_name="REGION__STORAGE",
-                                                parameter_definition_name="MinStorageCharge")
-    StorageMaxChargeRate = source_db.get_parameter_value_items(entity_class_name="REGION__STORAGE",
-                                                parameter_definition_name="StorageMaxChargeRate")
-    StorageMaxDischargeRate = source_db.get_parameter_value_items(entity_class_name="REGION__STORAGE",
-                                                parameter_definition_name="StorageMaxDischargeRate")
+    StorageLevelStart = get_parameter_values_with_default(source_db, "REGION__STORAGE", "StorageLevelStart", use_default = True, ignore_default_value_of = 0.0)
+    ResidualStorageCapacity = get_parameter_values_with_default(source_db, "REGION__STORAGE", "ResidualStorageCapacity", use_default = True, ignore_default_value_of = 0.0)
+    CapitalCostStorage = get_parameter_values_with_default(source_db, "REGION__STORAGE", "CapitalCostStorage", use_default = True, ignore_default_value_of = 0.0)
+    MinStorageCharge = get_parameter_values_with_default(source_db, "REGION__STORAGE", "MinStorageCharge", use_default = True, ignore_default_value_of = 0.0)
+    StorageMaxChargeRate = get_parameter_values_with_default(source_db, "REGION__STORAGE", "StorageMaxChargeRate", use_default = True, ignore_default_value_of = 0.0)
+    StorageMaxDischargeRate = get_parameter_values_with_default(source_db, "REGION__STORAGE", "StorageMaxDischargeRate", use_default = True, ignore_default_value_of = 0.0)
+    
     for rs in region__storages:
         storage_capacity = None
         for technology in technologys:
@@ -1000,9 +1006,13 @@ def process_storages(source_db, target_db):
 
 def process_reserves(source_db, target_db, timeslice_indexes):
 
-    #This constraint would be possible with user constraints:
-    #sum(flow_from_the_nodes) <= reserve_margin * sum(capacity of the units)
-    #It would be messy and most models do not have user constraints
+    # This constraint would be possible with user constraints:
+    # sum(flow_from_the_nodes) <= reserve_margin * sum(capacity of the units)
+    # It would be messy and most models do not have user constraints
+
+    # The problem is the tags for both the technology and the fuel. 
+    # This makes the constraint too broad, because any set flows can be restricted by any set capcacity in the same region
+    # If one would assume that all technologies and fuels are tagged, this would be possible to do with the capacity margin param
 
     return target_db
 
@@ -1196,7 +1206,13 @@ def process_activity_constraints(source_db, target_db):
                     for i, val in enumerate(param_map.indexes):
                         for j, oa_val in enumerate(oa_ratio_map.values[0].indexes):
                             if val == oa_val:
-                                param_map.values[i] = oa_ratio_map.values[0].values[j] * param_map.values[i] / capacity_to_activity_ratio * 8760
+                                # Note that the activity is in annual energy, the flow is in power -> capacity_to_activity_ratio converts both energy to power and annual to instant
+                                # Convert activity to:
+                                # 1. flow
+                                # 2. From energy to power
+                                # 3. Power to MW
+                                # 4. From instant to annual
+                                param_map.values[i] = param_map.values[i] * oa_ratio_map.values[0].values[j] / capacity_to_activity_ratio * capacity_unit_ratio * 8760
                                 break
                     
                     target_db = ines_transform.add_item_to_DB(target_db, "flow_min_cumulative", [param["alternative_name"], (set_name,), "set"], param_map)
@@ -1219,7 +1235,7 @@ def process_activity_constraints(source_db, target_db):
                     for i, val in enumerate(param_map.indexes):
                         for j, oa_val in enumerate(oa_ratio_map.values[0].indexes):
                             if val == oa_val:
-                                param_map.values[i] = oa_ratio_map.values[0].values[j] * param_map.values[i] / capacity_to_activity_ratio * 8760
+                                param_map.values[i] = param_map.values[i] * oa_ratio_map.values[0].values[j] / capacity_to_activity_ratio * capacity_unit_ratio * 8760
                                 break
                     target_db = ines_transform.add_item_to_DB(target_db, "flow_max_cumulative", [param["alternative_name"], (set_name,), "set"], param_map)
                     break #taking the flow from one of the outputs is enough
@@ -1238,8 +1254,8 @@ def process_activity_constraints(source_db, target_db):
                     ines_transform.assert_success(target_db.add_entity_item(entity_class_name='set__unit_flow', 
                                                                             entity_byname=(set_name, unit_name, node_name)), warn=True)
                     oa_ratio_map = api.from_database(oa["value"], oa["type"])
-                    param_float = param_float * oa_ratio_map.values[0].values[0] / capacity_to_activity_ratio * 8760 #taking the first value of the map, as INES supports only constant oa values
-                    
+                    #taking the first value of the map, as INES supports only constant oa values
+                    param_float = param_float * oa_ratio_map.values[0].values[0] / capacity_to_activity_ratio * capacity_unit_ratio * 8760
                     target_db = ines_transform.add_item_to_DB(target_db, "flow_min_cumulative", [param["alternative_name"], (set_name,), "set"], param_float)
                     break #taking the flow from one of the outputs is enough
         
@@ -1257,8 +1273,8 @@ def process_activity_constraints(source_db, target_db):
                     ines_transform.assert_success(target_db.add_entity_item(entity_class_name='set__unit_flow', 
                                                                             entity_byname=(set_name, unit_name, node_name)), warn=True)
                     oa_ratio_map = api.from_database(oa["value"], oa["type"])
-                    param_float = param_float * oa_ratio_map.values[0].values[0] / capacity_to_activity_ratio * 8760  #taking the first value of the map, as INES supports only constant oa values
-                    
+                    #taking the first value of the map, as INES supports only constant oa values
+                    param_float = param_float * oa_ratio_map.values[0].values[0] / capacity_to_activity_ratio * capacity_unit_ratio * 8760
                     target_db = ines_transform.add_item_to_DB(target_db, "flow_max_cumulative", [param["alternative_name"], (set_name,), "set"], param_float)
                     break #taking the flow from one of the outputs is enough
 
@@ -1317,6 +1333,32 @@ def alternative_name_from_two(alt_i, alt_o, target_db):
         alt = alt_i + "__" + alt_o
     target_db.add_update_alternative_item(name=alt)
     return alt
+
+
+def get_parameter_values_with_default(source_db, source_entity_class, source_param, use_default = False, ignore_default_value_of = None):
+    entities = source_db.get_entity_items(entity_class_name=source_entity_class) if use_default else None
+    param_def_item = source_db.get_parameter_definition_item(
+    entity_class_name=source_entity_class, name=source_param
+    ) if use_default else None
+
+    # Get all parameter values at once
+    params = source_db.get_parameter_value_items(
+        entity_class_name=source_entity_class,
+        parameter_definition_name=source_param,
+    )
+
+    if use_default:
+        if ignore_default_value_of != api.from_database(param_def_item["default_value"], param_def_item["default_type"]):
+            entities_with_params = {tuple(p["entity_byname"]) for p in params}
+            for entity in entities:
+                if tuple(entity["entity_byname"]) not in entities_with_params:
+                    params.append({
+                        "entity_byname": entity["entity_byname"],
+                        "value": param_def_item["default_value"],
+                        "type": param_def_item["default_type"],
+                        "alternative_name": default_alternative
+                    })
+    return params
 
 if __name__ == "__main__":
     if len(sys.argv) > 1:
