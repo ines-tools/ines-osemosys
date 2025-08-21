@@ -1,16 +1,23 @@
 import spinedb_api as api
 from spinedb_api import DatabaseMapping
-from ines_tools import ines_transform
-import numpy as np
+try:
+    from ines_tools import ines_transform
+except:
+    try:
+        from pathlib import Path
+        sys.path.insert(0,str(Path(__file__).parent.parent / "ines-tools"/ "ines_tools"))
+        import ines_transform
+    except:
+        print("Cannot find ines tools as an installed package or as parallel folder")
 from sqlalchemy.exc import DBAPIError
 import sys
-import os
 import csv
 from sys import exit
 import yaml
 import itertools
 import datetime
 from dateutil.relativedelta import relativedelta
+from dateutil.parser import parse
 
 
 def main():
@@ -179,9 +186,18 @@ def read_timeslice_data(timeslice_csv):
                     first_line = False
                 else:
                     for k, item in enumerate(row):
+                        if item == '':
+                            break
                         csv_data[k].append(item)
         for index_value in zip(csv_data[0],csv_data[1], csv_data[2]):
-            out_list.append((api.DateTime(datetime.datetime.strptime(index_value[0], "%Y-%m-%dT%H:%M:%S")), index_value[1], float(index_value[2])))
+            
+            try:
+                # Automatically parse the date string
+                date_object = parse(index_value[0])
+                out_list.append((api.DateTime(date_object), index_value[1], float(index_value[2])))
+            except ValueError as e:
+                print(f"Error parsing date: {e}")
+                sys.exit(-1)
 
     except FileNotFoundError:
         print("No csv data file for " + timeslice_csv)
