@@ -359,7 +359,7 @@
             "type": "Data Store",
             "description": "",
             "x": 433.16312975899416,
-            "y": -335.7594284626261,
+            "y": -336.8220163645941,
             "url": {
                 "dialect": "sqlite",
                 "host": "",
@@ -418,15 +418,15 @@
             "type": "Data Store",
             "description": "",
             "x": -138.6876868602409,
-            "y": -340.5105044065227,
+            "y": -341.5730923084908,
             "url": {
                 "dialect": "sqlite",
                 "host": "",
                 "port": "",
                 "database": {
                     "type": "path",
-                    "relative": false,
-                    "path": "c:/users/aetart/documents/osemosys-spine toolbox/osemosys_db.sqlite"
+                    "relative": true,
+                    "path": "osemosys_db.sqlite"
                 },
                 "schema": ""
             }
