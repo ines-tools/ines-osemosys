@@ -1,0 +1,563 @@
+{
+    "project": {
+        "version": 13,
+        "description": "",
+        "settings": {
+            "enable_execute_all": true
+        },
+        "specifications": {
+            "Tool": [
+                {
+                    "type": "path",
+                    "relative": true,
+                    "path": ".spinetoolbox/specifications/Tool/osemosys_to_ines.json"
+                },
+                {
+                    "type": "path",
+                    "relative": true,
+                    "path": ".spinetoolbox/specifications/read_mathprog_model_data.json"
+                },
+                {
+                    "type": "path",
+                    "relative": true,
+                    "path": ".spinetoolbox/specifications/read_mathprog_model_structure.json"
+                },
+                {
+                    "type": "path",
+                    "relative": true,
+                    "path": ".spinetoolbox/specifications/write_to_osemosys.json"
+                },
+                {
+                    "type": "path",
+                    "relative": true,
+                    "path": ".spinetoolbox/specifications/run_osemosys.json"
+                },
+                {
+                    "type": "path",
+                    "relative": true,
+                    "path": ".spinetoolbox/specifications/Tool/ines_to_flextool.json"
+                },
+                {
+                    "type": "path",
+                    "relative": false,
+                    "path": "C:/Users/aetart/Documents/flextool/.spinetoolbox/specifications/Tool/flextool3.json"
+                },
+                {
+                    "type": "path",
+                    "relative": true,
+                    "path": ".spinetoolbox/specifications/Tool/write_osemosys.json"
+                },
+                {
+                    "type": "path",
+                    "relative": true,
+                    "path": ".spinetoolbox/specifications/Tool/run_osemosys.json"
+                },
+                {
+                    "type": "path",
+                    "relative": true,
+                    "path": ".spinetoolbox/specifications/Tool/read_osemosys.json"
+                }
+            ],
+            "Importer": [
+                {
+                    "type": "path",
+                    "relative": false,
+                    "path": "C:/Users/aetart/Documents/flextool/.spinetoolbox/specifications/Importer/import_flex3.json"
+                }
+            ]
+        },
+        "connections": [
+            {
+                "name": "from Osemosys__data to OSeMOSYS to ines",
+                "from": [
+                    "Osemosys__data",
+                    "right"
+                ],
+                "to": [
+                    "OSeMOSYS to ines",
+                    "left"
+                ],
+                "filter_settings": {
+                    "known_filters": {
+                        "db_url@Osemosys__data": {
+                            "scenario_filter": {
+                                "base": true
+                            },
+                            "alternative_filter": {
+                                "base": true
+                            }
+                        }
+                    },
+                    "auto_online": true,
+                    "enabled_filter_types": {
+                        "alternative_filter": false,
+                        "scenario_filter": true
+                    }
+                }
+            },
+            {
+                "name": "from OSeMOSYS to ines to Ines_db",
+                "from": [
+                    "OSeMOSYS to ines",
+                    "right"
+                ],
+                "to": [
+                    "Ines_db",
+                    "left"
+                ],
+                "filter_settings": {
+                    "known_filters": {},
+                    "auto_online": true,
+                    "enabled_filter_types": {
+                        "alternative_filter": false,
+                        "scenario_filter": true
+                    }
+                }
+            },
+            {
+                "name": "from Timeslices to time to OSeMOSYS to ines",
+                "from": [
+                    "Timeslices to time",
+                    "left"
+                ],
+                "to": [
+                    "OSeMOSYS to ines",
+                    "left"
+                ],
+                "filter_settings": {
+                    "known_filters": {},
+                    "auto_online": true,
+                    "enabled_filter_types": {
+                        "alternative_filter": false,
+                        "scenario_filter": true
+                    }
+                }
+            },
+            {
+                "name": "from Osemosys_to_ines_settings to OSeMOSYS to ines",
+                "from": [
+                    "Osemosys_to_ines_settings",
+                    "left"
+                ],
+                "to": [
+                    "OSeMOSYS to ines",
+                    "left"
+                ],
+                "filter_settings": {
+                    "known_filters": {},
+                    "auto_online": true,
+                    "enabled_filter_types": {
+                        "alternative_filter": false,
+                        "scenario_filter": true
+                    }
+                }
+            },
+            {
+                "name": "from Osemosys__data to write_osemosys",
+                "from": [
+                    "Osemosys__data",
+                    "bottom"
+                ],
+                "to": [
+                    "write_osemosys",
+                    "left"
+                ],
+                "filter_settings": {
+                    "known_filters": {
+                        "db_url@Osemosys__data": {
+                            "scenario_filter": {
+                                "base": true
+                            },
+                            "alternative_filter": {
+                                "base": true
+                            }
+                        }
+                    },
+                    "auto_online": true,
+                    "enabled_filter_types": {
+                        "alternative_filter": false,
+                        "scenario_filter": true
+                    }
+                }
+            },
+            {
+                "name": "from Osemosys_settings to write_osemosys",
+                "from": [
+                    "Osemosys_settings",
+                    "right"
+                ],
+                "to": [
+                    "write_osemosys",
+                    "left"
+                ],
+                "filter_settings": {
+                    "known_filters": {},
+                    "auto_online": true,
+                    "enabled_filter_types": {
+                        "alternative_filter": false,
+                        "scenario_filter": true
+                    }
+                }
+            },
+            {
+                "name": "from write_osemosys to run_osemosys",
+                "from": [
+                    "write_osemosys",
+                    "bottom"
+                ],
+                "to": [
+                    "run_osemosys",
+                    "left"
+                ],
+                "filter_settings": {
+                    "known_filters": {},
+                    "auto_online": true,
+                    "enabled_filter_types": {
+                        "alternative_filter": false,
+                        "scenario_filter": true
+                    }
+                }
+            },
+            {
+                "name": "from Osemosys_structure to run_osemosys",
+                "from": [
+                    "Osemosys_structure",
+                    "right"
+                ],
+                "to": [
+                    "run_osemosys",
+                    "left"
+                ],
+                "filter_settings": {
+                    "known_filters": {},
+                    "auto_online": true,
+                    "enabled_filter_types": {
+                        "alternative_filter": false,
+                        "scenario_filter": true
+                    }
+                }
+            },
+            {
+                "name": "from Osemosys_settings to run_osemosys",
+                "from": [
+                    "Osemosys_settings",
+                    "right"
+                ],
+                "to": [
+                    "run_osemosys",
+                    "left"
+                ],
+                "filter_settings": {
+                    "known_filters": {},
+                    "auto_online": true,
+                    "enabled_filter_types": {
+                        "alternative_filter": false,
+                        "scenario_filter": true
+                    }
+                }
+            },
+            {
+                "name": "from Osemosys_data to read_osemosys",
+                "from": [
+                    "Osemosys_data",
+                    "right"
+                ],
+                "to": [
+                    "read_osemosys",
+                    "left"
+                ],
+                "filter_settings": {
+                    "known_filters": {},
+                    "auto_online": true,
+                    "enabled_filter_types": {
+                        "alternative_filter": false,
+                        "scenario_filter": true
+                    }
+                }
+            },
+            {
+                "name": "from read_osemosys to Osemosys__data",
+                "from": [
+                    "read_osemosys",
+                    "right"
+                ],
+                "to": [
+                    "Osemosys__data",
+                    "left"
+                ],
+                "filter_settings": {
+                    "known_filters": {},
+                    "auto_online": true,
+                    "enabled_filter_types": {
+                        "alternative_filter": false,
+                        "scenario_filter": true
+                    }
+                }
+            },
+            {
+                "name": "from Osemosys_settings to read_osemosys",
+                "from": [
+                    "Osemosys_settings",
+                    "right"
+                ],
+                "to": [
+                    "read_osemosys",
+                    "left"
+                ],
+                "filter_settings": {
+                    "known_filters": {},
+                    "auto_online": true,
+                    "enabled_filter_types": {
+                        "alternative_filter": false,
+                        "scenario_filter": true
+                    }
+                }
+            },
+            {
+                "name": "from Osemosys_structure to read_osemosys",
+                "from": [
+                    "Osemosys_structure",
+                    "right"
+                ],
+                "to": [
+                    "read_osemosys",
+                    "left"
+                ],
+                "filter_settings": {
+                    "known_filters": {},
+                    "auto_online": true,
+                    "enabled_filter_types": {
+                        "alternative_filter": false,
+                        "scenario_filter": true
+                    }
+                }
+            },
+            {
+                "name": "from Osemosys_structure to write_osemosys",
+                "from": [
+                    "Osemosys_structure",
+                    "right"
+                ],
+                "to": [
+                    "write_osemosys",
+                    "left"
+                ],
+                "filter_settings": {
+                    "known_filters": {},
+                    "auto_online": true,
+                    "enabled_filter_types": {
+                        "alternative_filter": false,
+                        "scenario_filter": true
+                    }
+                }
+            }
+        ],
+        "jumps": []
+    },
+    "items": {
+        "Ines_db": {
+            "type": "Data Store",
+            "description": "",
+            "x": 433.16312975899416,
+            "y": -335.7594284626261,
+            "url": {
+                "dialect": "sqlite",
+                "host": "",
+                "port": "",
+                "database": {
+                    "type": "path",
+                    "relative": true,
+                    "path": "ines-spec.sqlite"
+                },
+                "schema": ""
+            }
+        },
+        "Osemosys_data": {
+            "type": "Data Connection",
+            "description": "",
+            "x": -691.8934850365941,
+            "y": -337.7705828219174,
+            "file_references": [
+                {
+                    "type": "path",
+                    "relative": true,
+                    "path": "data/example/model.dat"
+                }
+            ],
+            "db_references": []
+        },
+        "OSeMOSYS to ines": {
+            "type": "Tool",
+            "description": "",
+            "x": 213.58156296298557,
+            "y": -335.6971595072142,
+            "specification": "OSeMOSYS to ines",
+            "execute_in_work": true,
+            "cmd_line_args": [
+                {
+                    "type": "resource",
+                    "arg": "db_url@Osemosys__data"
+                },
+                {
+                    "type": "resource",
+                    "arg": "db_url@Ines_db"
+                },
+                {
+                    "type": "resource",
+                    "arg": "<project>/ines-osemosys/settings.yaml"
+                },
+                {
+                    "type": "resource",
+                    "arg": "<project>/data/example/timeslices_to_time.csv"
+                }
+            ],
+            "kill_completed_processes": false,
+            "log_process_output": false
+        },
+        "Osemosys__data": {
+            "type": "Data Store",
+            "description": "",
+            "x": -138.6876868602409,
+            "y": -340.5105044065227,
+            "url": {
+                "dialect": "sqlite",
+                "host": "",
+                "port": "",
+                "database": {
+                    "type": "path",
+                    "relative": false,
+                    "path": "c:/users/aetart/documents/osemosys-spine toolbox/osemosys_db.sqlite"
+                },
+                "schema": ""
+            }
+        },
+        "Osemosys_structure": {
+            "type": "Data Connection",
+            "description": "",
+            "x": -698.5887662024398,
+            "y": -72.95259692932704,
+            "file_references": [
+                {
+                    "type": "path",
+                    "relative": true,
+                    "path": "data/example/model.mod"
+                }
+            ],
+            "db_references": []
+        },
+        "Osemosys_settings": {
+            "type": "Data Connection",
+            "description": "",
+            "x": -697.6983222098854,
+            "y": -206.56204952957282,
+            "file_references": [
+                {
+                    "type": "path",
+                    "relative": true,
+                    "path": "settings_OSeMOSYS.yaml"
+                }
+            ],
+            "db_references": []
+        },
+        "Osemosys_to_ines_settings": {
+            "type": "Data Connection",
+            "description": "",
+            "x": 212.74361239928527,
+            "y": -216.93716969117415,
+            "file_references": [
+                {
+                    "type": "path",
+                    "relative": true,
+                    "path": "ines-osemosys/settings.yaml"
+                }
+            ],
+            "db_references": []
+        },
+        "Timeslices to time": {
+            "type": "Data Connection",
+            "description": "",
+            "x": 217.26404934888447,
+            "y": -450.78353996207954,
+            "file_references": [
+                {
+                    "type": "path",
+                    "relative": true,
+                    "path": "data/example/timeslices_to_time.csv"
+                }
+            ],
+            "db_references": []
+        },
+        "write_osemosys": {
+            "type": "Tool",
+            "description": "",
+            "x": -90.37762152633596,
+            "y": -209.86665299677395,
+            "specification": "write_osemosys",
+            "execute_in_work": false,
+            "cmd_line_args": [
+                {
+                    "type": "resource",
+                    "arg": "<project>/settings_OSeMOSYS.yaml"
+                },
+                {
+                    "type": "resource",
+                    "arg": "db_url@Osemosys__data"
+                },
+                {
+                    "type": "resource",
+                    "arg": "<project>/data/example/model.mod"
+                }
+            ],
+            "kill_completed_processes": false,
+            "log_process_output": false
+        },
+        "run_osemosys": {
+            "type": "Tool",
+            "description": "",
+            "x": -34.002812862979546,
+            "y": -79.69409264760831,
+            "specification": "run_osemosys",
+            "execute_in_work": false,
+            "cmd_line_args": [
+                {
+                    "type": "resource",
+                    "arg": "<project>/settings_OSeMOSYS.yaml"
+                },
+                {
+                    "type": "resource",
+                    "arg": "<project>/data/example/model.mod"
+                }
+            ],
+            "kill_completed_processes": false,
+            "log_process_output": false
+        },
+        "read_osemosys": {
+            "type": "Tool",
+            "description": "",
+            "x": -368.7180019829346,
+            "y": -343.2158923356998,
+            "specification": "read_osemosys",
+            "execute_in_work": false,
+            "cmd_line_args": [
+                {
+                    "type": "resource",
+                    "arg": "<project>/settings_OSeMOSYS.yaml"
+                },
+                {
+                    "type": "resource",
+                    "arg": "db_url@Osemosys__data"
+                },
+                {
+                    "type": "resource",
+                    "arg": "<project>/data/example/model.mod"
+                },
+                {
+                    "type": "resource",
+                    "arg": "<project>/data/example/model.dat"
+                }
+            ],
+            "kill_completed_processes": false,
+            "log_process_output": false
+        }
+    }
+}
