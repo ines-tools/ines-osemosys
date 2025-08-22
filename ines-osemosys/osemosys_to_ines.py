@@ -1,11 +1,11 @@
 import spinedb_api as api
 from spinedb_api import DatabaseMapping
+from pathlib import Path
 try:
     from ines_tools import ines_transform
 except:
     try:
-        from pathlib import Path
-        sys.path.insert(0,str(Path(__file__).parent.parent / "ines-tools"/ "ines_tools"))
+        sys.path.insert(0,str(Path(__file__).parent.parent.parent / "ines-tools"/ "ines_tools"))
         import ines_transform
     except:
         print("Cannot find ines tools as an installed package or as parallel folder")
@@ -367,7 +367,6 @@ def process_capacities(source_db, target_db, datetime_indexes, timeslice_indexes
                                                 parameter_definition_name="TotalAnnualMinCapacityInvestment")
 
     for unit_source in source_db.get_entity_items(entity_class_name="REGION__TECHNOLOGY"):
-        print(unit_source["name"])
         source_unit_investment_cost = source_db.get_parameter_value_items(entity_class_name="REGION__TECHNOLOGY", entity_name=unit_source["name"], parameter_definition_name="CapitalCost")
         source_unit_fixed_cost = source_db.get_parameter_value_items(entity_class_name="REGION__TECHNOLOGY", entity_name=unit_source["name"], parameter_definition_name="FixedCost")
         source_unit_variable_cost = source_db.get_parameter_value_items(entity_class_name="REGION__TECHNOLOGY", entity_name=unit_source["name"], parameter_definition_name="VariableCost")
@@ -516,16 +515,6 @@ def process_capacities(source_db, target_db, datetime_indexes, timeslice_indexes
         else:
             exit("Not handling multiple inputs together with multiple outputs. Error in entity: " + unit_source["name"])
         
-        # Get the CapacitytoActivityRatio
-        source_CapacitytoActivityRatio = source_db.get_parameter_value_items(entity_class_name="REGION__TECHNOLOGY", entity_name=unit_source["name"], parameter_definition_name="CapacityToActivityUnit")
-        if len(source_CapacitytoActivityRatio) > 1:
-            exit("Multiple alternatives for CapacitytoActivityRatio - not handled")
-        elif len(source_CapacitytoActivityRatio) == 0:
-            capacity_to_activity_ratio = 1
-        else:
-            source_CapacitytoActivityRatio = source_CapacitytoActivityRatio[0]
-            capacity_to_activity_ratio = api.from_database(source_CapacitytoActivityRatio["value"], "float")
-
         # Get the possible capacity of one technology unit
         source_CapacityOfOneTechnologyUnit = source_db.get_parameter_value_items(entity_class_name="REGION__TECHNOLOGY", entity_name=unit_source["name"], parameter_definition_name="CapacityOfOneTechnologyUnit")
         if len(source_CapacityOfOneTechnologyUnit) > 1:
@@ -558,20 +547,20 @@ def process_capacities(source_db, target_db, datetime_indexes, timeslice_indexes
         for param in source_unit_residual_capacity:
             param_map = api.from_database(param["value"], "map")
             param_map.values = [x * capacity_unit_ratio * act_ratio / unit_capacity for x in param_map.values]
-            alt_ent_class = (param["alternative_name"], (unit_source["name"],), "unit")
+            alt_ent_class = (param["alternative_name"], unit_byname, "unit")
             target_db = ines_transform.add_item_to_DB(target_db, "units_existing", alt_ent_class, param_map)
         source_unit_total_max = source_db.get_parameter_value_items(entity_class_name="REGION__TECHNOLOGY", entity_name=unit_source["name"], parameter_definition_name="TotalAnnualMaxCapacity")
         for param in source_unit_total_max:
             param_map = api.from_database(param["value"], "map")
             param_map.values = [x * capacity_unit_ratio * act_ratio / unit_capacity for x in param_map.values]
-            alt_ent_class = (param["alternative_name"], (unit_source["name"],), "unit")
+            alt_ent_class = (param["alternative_name"], unit_byname, "unit")
             target_db = ines_transform.add_item_to_DB(target_db, "units_max_cumulative", alt_ent_class, param_map)
             flag_limit_cumulative_investments = True
         source_unit_total_min = source_db.get_parameter_value_items(entity_class_name="REGION__TECHNOLOGY", entity_name=unit_source["name"], parameter_definition_name="TotalAnnualMinCapacity")
         for param in source_unit_total_min:
             param_map = api.from_database(param["value"], "map")
             param_map.values = [x * capacity_unit_ratio * act_ratio / unit_capacity for x in param_map.values]
-            alt_ent_class = (param["alternative_name"], (unit_source["name"],), "unit")
+            alt_ent_class = (param["alternative_name"], unit_byname, "unit")
             target_db = ines_transform.add_item_to_DB(target_db, "units_min_cumulative", alt_ent_class, param_map)
             flag_limit_cumulative_investments = True
         
@@ -580,7 +569,7 @@ def process_capacities(source_db, target_db, datetime_indexes, timeslice_indexes
                 param_map = api.from_database(param["value"], "map")
                 param_map.values = [x * capacity_unit_ratio * act_ratio / unit_capacity for x in param_map.values]
                 param_map.index_name = "period"
-                alt_ent_class = (param["alternative_name"], (unit_source["name"],), "unit")
+                alt_ent_class = (param["alternative_name"], unit_byname, "unit")
                 target_db = ines_transform.add_item_to_DB(target_db, "units_invest_max_period", alt_ent_class, param_map)
 
         for param in TotalAnnualMinCapacityInvestment:
@@ -588,7 +577,7 @@ def process_capacities(source_db, target_db, datetime_indexes, timeslice_indexes
                 param_map = api.from_database(param["value"], "map")
                 param_map.values = [x * capacity_unit_ratio * act_ratio / unit_capacity for x in param_map.values]
                 param_map.index_name = "period"
-                alt_ent_class = (param["alternative_name"], (unit_source["name"],), "unit")
+                alt_ent_class = (param["alternative_name"], unit_byname, "unit")
                 target_db = ines_transform.add_item_to_DB(target_db, "units_invest_min_period", alt_ent_class, param_map)
         
         for alt_activity, act_ratio in act_ratio_dict.items():    
@@ -638,7 +627,7 @@ def process_capacities(source_db, target_db, datetime_indexes, timeslice_indexes
                         if unit["entity_byname"] == unit_source["entity_byname"]:
                             alt = unit["entity_alternative_name"]
             if interest_rate:
-                target_db = ines_transform.add_item_to_DB(target_db, "interest_rate", (alt, (unit_source["name"],), "unit"), interest_rate)
+                target_db = ines_transform.add_item_to_DB(target_db, "interest_rate", (alt, unit_byname, "unit"), interest_rate)
 
             if flag_allow_investments:
                 if flag_limit_cumulative_investments:
@@ -687,11 +676,11 @@ def process_capacities(source_db, target_db, datetime_indexes, timeslice_indexes
 
         if (len(output_act_ratio) == 1 and len(input_act_ratio) == 0) or (len(output_act_ratio) == 0 and len(input_act_ratio) == 1):
             for alt_activity, act_ratio in act_ratio_dict.items():
-                alt_ent_class = (alt_activity, (unit_source["name"],), "unit")
+                alt_ent_class = (alt_activity, unit_byname, "unit")
                 target_db = ines_transform.add_item_to_DB(target_db, "conversion_method", alt_ent_class, "coefficients_only")
         if len(output_act_ratio) > 0 and len(input_act_ratio) > 0:
             for alt_activity, act_ratio in act_ratio_dict.items():
-                alt_ent_class = (alt_activity, (unit_source["name"],), "unit")
+                alt_ent_class = (alt_activity, unit_byname, "unit")
                 target_db = ines_transform.add_item_to_DB(target_db, "conversion_method", alt_ent_class, "constant_efficiency")
         # If no capacity nor investment_cost defined, warn.
         if not (source_unit_residual_capacity or source_unit_investment_cost):
