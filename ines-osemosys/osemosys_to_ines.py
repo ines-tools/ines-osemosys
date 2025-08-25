@@ -523,7 +523,7 @@ def process_capacities(source_db, target_db, datetime_indexes, timeslice_indexes
             cap = default_unit_size
         else:
             source_CapacityOfOneTechnologyUnit = source_CapacityOfOneTechnologyUnit[0]
-            cap = api.from_database(source_CapacityOfOneTechnologyUnit["value"], "map").values[0] * capacity_unit_ratio
+            cap = api.from_database(source_CapacityOfOneTechnologyUnit["value"], "map").values[0] * capacity_unit_factor
             if any(x != cap for x in api.from_database(source_CapacityOfOneTechnologyUnit["value"].values, "map").values):
                 exit("CapacityOfOneTechnologyUnit has different values for different years - not handled")
             target_db = ines_transform.add_item_to_DB(target_db, "investment_uses_integer", (unit_source["name"],), True)
@@ -546,20 +546,20 @@ def process_capacities(source_db, target_db, datetime_indexes, timeslice_indexes
         source_unit_residual_capacity = source_db.get_parameter_value_items(entity_class_name="REGION__TECHNOLOGY", entity_name=unit_source["name"], parameter_definition_name="ResidualCapacity")
         for param in source_unit_residual_capacity:
             param_map = api.from_database(param["value"], "map")
-            param_map.values = [x * capacity_unit_ratio * act_ratio / unit_capacity for x in param_map.values]
+            param_map.values = [x * capacity_unit_factor * act_ratio / unit_capacity for x in param_map.values]
             alt_ent_class = (param["alternative_name"], unit_byname, "unit")
             target_db = ines_transform.add_item_to_DB(target_db, "units_existing", alt_ent_class, param_map)
         source_unit_total_max = source_db.get_parameter_value_items(entity_class_name="REGION__TECHNOLOGY", entity_name=unit_source["name"], parameter_definition_name="TotalAnnualMaxCapacity")
         for param in source_unit_total_max:
             param_map = api.from_database(param["value"], "map")
-            param_map.values = [x * capacity_unit_ratio * act_ratio / unit_capacity for x in param_map.values]
+            param_map.values = [x * capacity_unit_factor * act_ratio / unit_capacity for x in param_map.values]
             alt_ent_class = (param["alternative_name"], unit_byname, "unit")
             target_db = ines_transform.add_item_to_DB(target_db, "units_max_cumulative", alt_ent_class, param_map)
             flag_limit_cumulative_investments = True
         source_unit_total_min = source_db.get_parameter_value_items(entity_class_name="REGION__TECHNOLOGY", entity_name=unit_source["name"], parameter_definition_name="TotalAnnualMinCapacity")
         for param in source_unit_total_min:
             param_map = api.from_database(param["value"], "map")
-            param_map.values = [x * capacity_unit_ratio * act_ratio / unit_capacity for x in param_map.values]
+            param_map.values = [x * capacity_unit_factor * act_ratio / unit_capacity for x in param_map.values]
             alt_ent_class = (param["alternative_name"], unit_byname, "unit")
             target_db = ines_transform.add_item_to_DB(target_db, "units_min_cumulative", alt_ent_class, param_map)
             flag_limit_cumulative_investments = True
@@ -567,7 +567,7 @@ def process_capacities(source_db, target_db, datetime_indexes, timeslice_indexes
         for param in TotalAnnualMaxCapacityInvestment:
             if param["entity_byname"] == unit_source["entity_byname"]:
                 param_map = api.from_database(param["value"], "map")
-                param_map.values = [x * capacity_unit_ratio * act_ratio / unit_capacity for x in param_map.values]
+                param_map.values = [x * capacity_unit_factor * act_ratio / unit_capacity for x in param_map.values]
                 param_map.index_name = "period"
                 alt_ent_class = (param["alternative_name"], unit_byname, "unit")
                 target_db = ines_transform.add_item_to_DB(target_db, "units_invest_max_period", alt_ent_class, param_map)
@@ -575,7 +575,7 @@ def process_capacities(source_db, target_db, datetime_indexes, timeslice_indexes
         for param in TotalAnnualMinCapacityInvestment:
             if param["entity_byname"] == unit_source["entity_byname"]:
                 param_map = api.from_database(param["value"], "map")
-                param_map.values = [x * capacity_unit_ratio * act_ratio / unit_capacity for x in param_map.values]
+                param_map.values = [x * capacity_unit_factor * act_ratio / unit_capacity for x in param_map.values]
                 param_map.index_name = "period"
                 alt_ent_class = (param["alternative_name"], unit_byname, "unit")
                 target_db = ines_transform.add_item_to_DB(target_db, "units_invest_min_period", alt_ent_class, param_map)
@@ -587,7 +587,7 @@ def process_capacities(source_db, target_db, datetime_indexes, timeslice_indexes
             for source_param in source_unit_investment_cost:
                 alt = source_param["alternative_name"]
                 source_param = api.from_database(source_param["value"], "map")
-                source_param.values = [s * investment_unit_ratio / a for s, a in zip(source_param.values, act_ratio)]
+                source_param.values = [s * investment_unit_factor / a for s, a in zip(source_param.values, act_ratio)]
                 source_param.index_name = "period"
                 alt_ent_class = (alt, entity_byname, class_name)
                 target_db = ines_transform.add_item_to_DB(target_db, "investment_cost", alt_ent_class, source_param)
@@ -599,7 +599,7 @@ def process_capacities(source_db, target_db, datetime_indexes, timeslice_indexes
             for source_param in source_unit_fixed_cost:
                 alt = source_param["alternative_name"]
                 source_param = api.from_database(source_param["value"], "map")
-                source_param.values = [s * investment_unit_ratio / a for s, a in zip(source_param.values, act_ratio)]
+                source_param.values = [s * investment_unit_factor / a for s, a in zip(source_param.values, act_ratio)]
                 source_param.index_name = "period"
                 alt_ent_class = (alt, entity_byname, class_name)
                 target_db = ines_transform.add_item_to_DB(target_db, "fixed_cost", alt_ent_class, source_param)
@@ -654,7 +654,7 @@ def process_capacities(source_db, target_db, datetime_indexes, timeslice_indexes
                 if isinstance(source_param.values[0], api.Map):
                     print("Only one mode_of_operation is allowed, taking the first one.")
                     source_param = source_param.values[0]  # Bypass mode_of_operation dimension (assume there is only one)
-                source_param.values = [s * variable_cost_unit_ratio / a / 8760 for s, a in zip(source_param.values, act_ratio)]
+                source_param.values = [s * variable_cost_unit_factor / a / 8760 for s, a in zip(source_param.values, act_ratio)]
                 source_param.index_name = "period"
                 alt_ent_class = (alt, entity_byname, class_name)
                 target_db = ines_transform.add_item_to_DB(target_db, "other_operational_cost", alt_ent_class, source_param)
@@ -870,7 +870,7 @@ def process_demands(source_db, target_db, datetime_indexes):
                 if isinstance(param_map, float):
                     target_db = ines_transform.add_item_to_DB(target_db, "flow_annual", alt_ent_class, param_map)
                 else:
-                    param_map.values = [x * demand_unit_ratio  for x in param_map.values]
+                    param_map.values = [x * demand_unit_factor  for x in param_map.values]
                     target_db = ines_transform.add_item_to_DB(target_db, "flow_annual", alt_ent_class, param_map)
                 
                 values = [1.0 for i in datetime_indexes]
@@ -885,7 +885,7 @@ def process_demands(source_db, target_db, datetime_indexes):
                 if isinstance(param_map, float):
                     target_db = ines_transform.add_item_to_DB(target_db, "flow_annual", alt_ent_class, param_map)
                 else:
-                    param_map.values = [x * demand_unit_ratio  for x in param_map.values]
+                    param_map.values = [x * demand_unit_factor  for x in param_map.values]
                     target_db = ines_transform.add_item_to_DB(target_db, "flow_annual", alt_ent_class, param_map)
                 demand = True
         if demand:
@@ -947,13 +947,13 @@ def process_storages(source_db, target_db):
                 alt_ent_class = (param["alternative_name"], (param["entity_byname"][0]+"__"+param["entity_byname"][1],), "node")
                 param_map = api.from_database(param["value"], param["type"])
                 if isinstance(param_map, float):
-                    target_db = ines_transform.add_item_to_DB(target_db, "storage_capacity", alt_ent_class, param_map * storage_unit_ratio)
+                    target_db = ines_transform.add_item_to_DB(target_db, "storage_capacity", alt_ent_class, param_map * storage_unit_factor)
                     target_db = ines_transform.add_item_to_DB(target_db, "storages_existing", alt_ent_class, 1.0)
                     storage_capacity = param_map
                 else:
                     storage_capacity = param_map.values[0]
                     param_map.values = [x / storage_capacity for x in param_map.values]
-                    target_db = ines_transform.add_item_to_DB(target_db, "storage_capacity", alt_ent_class, storage_capacity * storage_unit_ratio)
+                    target_db = ines_transform.add_item_to_DB(target_db, "storage_capacity", alt_ent_class, storage_capacity * storage_unit_factor)
                     target_db = ines_transform.add_item_to_DB(target_db, "storages_existing", alt_ent_class, param_map)
                     storage_capacity = storage_capacity
 
@@ -969,9 +969,9 @@ def process_storages(source_db, target_db):
         alt_ent_class = (param["alternative_name"], (param["entity_byname"][0]+"__"+param["entity_byname"][1],), "node")
         param_map = api.from_database(param["value"], param["type"])
         if isinstance(param_map, float):
-            target_db = ines_transform.add_item_to_DB(target_db, "storage_investment_cost", alt_ent_class, param_map * storage_investment_unit_ratio)
+            target_db = ines_transform.add_item_to_DB(target_db, "storage_investment_cost", alt_ent_class, param_map * storage_investment_unit_factor)
         else:
-            param_map.values = [x * storage_investment_unit_ratio for x in param_map.values]
+            param_map.values = [x * storage_investment_unit_factor for x in param_map.values]
             target_db = ines_transform.add_item_to_DB(target_db, "storage_investment_cost", alt_ent_class, param_map)
 
     for param in MinStorageCharge:
@@ -984,7 +984,7 @@ def process_storages(source_db, target_db):
         set_name = f"set_charge_{param["entity_byname"][0]}_{param["entity_byname"][1]}"
         ines_transform.assert_success(target_db.add_entity_item(entity_class_name='set', entity_byname=(set_name,)), warn=True)
         constant_value =  api.from_database(param["value"], param["type"])
-        target_db = ines_transform.add_item_to_DB(target_db, "flow_max_instant", [param["alternative_name"],(set_name,),'set'], constant_value * capacity_unit_ratio) 
+        target_db = ines_transform.add_item_to_DB(target_db, "flow_max_instant", [param["alternative_name"],(set_name,),'set'], constant_value * capacity_unit_factor) 
         #add flows to the set
         for TechTS in TechnologyToStorage:
             entity_byname = TechTS["entity_byname"]
@@ -998,7 +998,7 @@ def process_storages(source_db, target_db):
         set_name = f"set_discharge_{param["entity_byname"][0]}_{param["entity_byname"][1]}"
         ines_transform.assert_success(target_db.add_entity_item(entity_class_name='set', entity_byname=(set_name,)), warn=True)
         constant_value =  api.from_database(param["value"], param["type"])
-        target_db = ines_transform.add_item_to_DB(target_db, "flow_max_instant", [param["alternative_name"],(set_name,),'set'], constant_value* capacity_unit_ratio) 
+        target_db = ines_transform.add_item_to_DB(target_db, "flow_max_instant", [param["alternative_name"],(set_name,),'set'], constant_value* capacity_unit_factor) 
         #add flows to the set
         for TechFS in TechnologyFromStorage:
             entity_byname = TechFS["entity_byname"]
@@ -1148,14 +1148,14 @@ def process_RE_min_constraint(source_db, target_db):
                     if param["entity_byname"] == fuel["entity_byname"]:
                         param_map = api.from_database(param["value"], param["type"])
                         for i, val in enumerate(param_map.values):
-                            yearly_demand[i] += val * demand_unit_ratio
+                            yearly_demand[i] += val * demand_unit_factor
                     demand = True
                 if not demand:
                     for param in AccumulatedAnnualDemand:
                         if param["entity_byname"] == fuel["entity_byname"]:
                             param_map = api.from_database(param["value"], param["type"])
                             for i, val in enumerate(param_map.values):
-                                yearly_demand[i] += val * demand_unit_ratio
+                                yearly_demand[i] += val * demand_unit_factor
                 #adding the flows to the set
                 for tech in RETagTechnology:
                     if tech["entity_byname"][0] != target["entity_byname"][0]:
@@ -1217,7 +1217,7 @@ def process_activity_constraints(source_db, target_db):
                                 # 2. From energy to power
                                 # 3. Power to MW
                                 # 4. From instant to annual
-                                param_map.values[i] = param_map.values[i] * oa_ratio_map.values[0].values[j] / capacity_to_activity_ratio * capacity_unit_ratio * 8760
+                                param_map.values[i] = param_map.values[i] * oa_ratio_map.values[0].values[j] / capacity_to_activity_ratio * capacity_unit_factor * 8760
                                 break
                     
                     target_db = ines_transform.add_item_to_DB(target_db, "flow_min_cumulative", [param["alternative_name"], (set_name,), "set"], param_map)
@@ -1240,7 +1240,7 @@ def process_activity_constraints(source_db, target_db):
                     for i, val in enumerate(param_map.indexes):
                         for j, oa_val in enumerate(oa_ratio_map.values[0].indexes):
                             if val == oa_val:
-                                param_map.values[i] = param_map.values[i] * oa_ratio_map.values[0].values[j] / capacity_to_activity_ratio * capacity_unit_ratio * 8760
+                                param_map.values[i] = param_map.values[i] * oa_ratio_map.values[0].values[j] / capacity_to_activity_ratio * capacity_unit_factor * 8760
                                 break
                     target_db = ines_transform.add_item_to_DB(target_db, "flow_max_cumulative", [param["alternative_name"], (set_name,), "set"], param_map)
                     break #taking the flow from one of the outputs is enough
@@ -1260,7 +1260,7 @@ def process_activity_constraints(source_db, target_db):
                                                                             entity_byname=(set_name, unit_name, node_name)), warn=True)
                     oa_ratio_map = api.from_database(oa["value"], oa["type"])
                     #taking the first value of the map, as INES supports only constant oa values
-                    param_float = param_float * oa_ratio_map.values[0].values[0] / capacity_to_activity_ratio * capacity_unit_ratio * 8760
+                    param_float = param_float * oa_ratio_map.values[0].values[0] / capacity_to_activity_ratio * capacity_unit_factor * 8760
                     target_db = ines_transform.add_item_to_DB(target_db, "flow_min_cumulative", [param["alternative_name"], (set_name,), "set"], param_float)
                     break #taking the flow from one of the outputs is enough
         
@@ -1279,7 +1279,7 @@ def process_activity_constraints(source_db, target_db):
                                                                             entity_byname=(set_name, unit_name, node_name)), warn=True)
                     oa_ratio_map = api.from_database(oa["value"], oa["type"])
                     #taking the first value of the map, as INES supports only constant oa values
-                    param_float = param_float * oa_ratio_map.values[0].values[0] / capacity_to_activity_ratio * capacity_unit_ratio * 8760
+                    param_float = param_float * oa_ratio_map.values[0].values[0] / capacity_to_activity_ratio * capacity_unit_factor * 8760
                     target_db = ines_transform.add_item_to_DB(target_db, "flow_max_cumulative", [param["alternative_name"], (set_name,), "set"], param_float)
                     break #taking the flow from one of the outputs is enough
 
@@ -1400,12 +1400,12 @@ if __name__ == "__main__":
     default_unit_size = float(settings["default_unit_size"])
     unit_to_penalty_boundary = float(settings["unit_to_penalty_boundary"])
 
-    capacity_unit_ratio = float(settings["capacity_unit_to_MW_ratio"])
-    storage_unit_ratio = float(settings["storage_capacity_unit_to_MWh_ratio"])
-    demand_unit_ratio = float(settings["demand_unit_to_MWh_ratio"])
-    investment_unit_ratio = float(settings["investment_unit_to_CUR/MW_ratio"])
-    storage_investment_unit_ratio = float(settings["storage_investment_unit_to_CUR/MWh_ratio"])
-    variable_cost_unit_ratio = float(settings["variable_cost_unit_to_CUR/MW_ratio"])
+    capacity_unit_factor = float(settings["capacity_unit_to_MW_factor"])
+    storage_unit_factor = float(settings["storage_capacity_unit_to_MWh_factor"])
+    demand_unit_factor = float(settings["demand_unit_to_MWh_factor"])
+    investment_unit_factor = float(settings["investment_unit_to_CUR/MW_factor"])
+    storage_investment_unit_factor = float(settings["storage_investment_unit_to_CUR/MWh_factor"])
+    variable_cost_unit_factor = float(settings["variable_cost_unit_to_CUR/MW_factor"])
     
     main()
 
