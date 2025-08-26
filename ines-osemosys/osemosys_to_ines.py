@@ -908,6 +908,7 @@ def process_storages(source_db, target_db):
     MinStorageCharge = get_parameter_values_with_default(source_db, "REGION__STORAGE", "MinStorageCharge", use_default = True, ignore_default_value_of = 0.0)
     StorageMaxChargeRate = get_parameter_values_with_default(source_db, "REGION__STORAGE", "StorageMaxChargeRate", use_default = True, ignore_default_value_of = 0.0)
     StorageMaxDischargeRate = get_parameter_values_with_default(source_db, "REGION__STORAGE", "StorageMaxDischargeRate", use_default = True, ignore_default_value_of = 0.0)
+    DiscountRateStorage = get_parameter_values_with_default(source_db, "REGION__STORAGE", "DiscountRateStorage", use_default = True, ignore_default_value_of = 0.0)
     
     for rs in region__storages:
         storage_capacity = None
@@ -1007,6 +1008,11 @@ def process_storages(source_db, target_db):
                                                                         entity_byname=(set_name, entity_byname[0] + "__" + entity_byname[2], entity_byname[0] + "__" + entity_byname[1])), 
                                                                         warn=True)
     
+    for param in DiscountRateStorage:
+        alt_ent_class = (param["alternative_name"], (param["entity_byname"][0]+"__"+param["entity_byname"][1],), "node")
+        param_float = api.from_database(param["value"], param["type"])
+        target_db = ines_transform.add_item_to_DB(target_db, "storage_interest_rate", alt_ent_class, param_float)
+
     return target_db
 
 def process_reserves(source_db, target_db, timeslice_indexes):
