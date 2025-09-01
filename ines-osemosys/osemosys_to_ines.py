@@ -983,7 +983,7 @@ def process_storages(source_db, target_db):
     for param in StorageMaxChargeRate:
         #create set
         set_name = f"set_charge_{param["entity_byname"][0]}_{param["entity_byname"][1]}"
-        ines_transform.assert_success(target_db.add_entity_item(entity_class_name='set', entity_byname=(set_name,)), warn=True)
+        target_db = add_entity_and_entity_alternative(target_db, 'set', (set_name,), param["alternative_name"])
         constant_value =  api.from_database(param["value"], param["type"])
         target_db = ines_transform.add_item_to_DB(target_db, "flow_max_instant", [param["alternative_name"],(set_name,),'set'], constant_value * capacity_unit_factor) 
         #add flows to the set
@@ -997,7 +997,7 @@ def process_storages(source_db, target_db):
     for param in StorageMaxDischargeRate:
         #create set
         set_name = f"set_discharge_{param["entity_byname"][0]}_{param["entity_byname"][1]}"
-        ines_transform.assert_success(target_db.add_entity_item(entity_class_name='set', entity_byname=(set_name,)), warn=True)
+        target_db = add_entity_and_entity_alternative(target_db, 'set', (set_name,), param["alternative_name"])
         constant_value =  api.from_database(param["value"], param["type"])
         target_db = ines_transform.add_item_to_DB(target_db, "flow_max_instant", [param["alternative_name"],(set_name,),'set'], constant_value* capacity_unit_factor) 
         #add flows to the set
@@ -1011,6 +1011,8 @@ def process_storages(source_db, target_db):
     for param in DiscountRateStorage:
         alt_ent_class = (param["alternative_name"], (param["entity_byname"][0]+"__"+param["entity_byname"][1],), "node")
         param_float = api.from_database(param["value"], param["type"])
+        if not param_float:
+            param_float = default_interest_rate
         target_db = ines_transform.add_item_to_DB(target_db, "storage_interest_rate", alt_ent_class, param_float)
 
     return target_db
@@ -1055,7 +1057,7 @@ def process_emissions(source_db, target_db):
                 if oa_ratio["entity_byname"][0] == param["entity_byname"][0] and oa_ratio["entity_byname"][1] == param["entity_byname"][1]:
                     oa_ratio_val = oa_ratio["parsed_value"].values[0].values[0]
                     node_name = f'{oa_ratio["entity_byname"][1]}_CO2_commodity'
-                    ines_transform.assert_success(target_db.add_entity_item(entity_class_name='node', entity_byname=(node_name,)), warn=True)
+                    target_db = add_entity_and_entity_alternative(target_db, 'node', (node_name,), param["alternative_name"])
                     entity_byname = (node_name, oa_ratio["entity_byname"][0] + "__" + oa_ratio["entity_byname"][1],)
                     ines_transform.assert_success(target_db.add_entity_item(entity_class_name='node__to_unit', entity_byname=entity_byname), warn=True)
                     alt_ent_class = (param["alternative_name"], (node_name,), "node")
@@ -1142,7 +1144,7 @@ def process_RE_min_constraint(source_db, target_db):
 
     for target in REMinProductionTarget:
         set_name = target["entity_byname"][0] + "_RE_target"
-        ines_transform.assert_success(target_db.add_entity_item(entity_class_name='set', entity_byname=(set_name,)), warn=True)
+        target_db = add_entity_and_entity_alternative(target_db, 'set', (set_name,), target["alternative_name"])
         factor_map = api.from_database(target["value"], target["type"])
         yearly_demand = [0 for i in factor_map.indexes]
 
@@ -1205,7 +1207,7 @@ def process_activity_constraints(source_db, target_db):
                 continue
             param_map = api.from_database(param["value"], param["type"])
             set_name = param["entity_byname"][1] + "_min_annual_activity"
-            ines_transform.assert_success(target_db.add_entity_item(entity_class_name='set', entity_byname=(set_name,)), warn=True)
+            target_db = add_entity_and_entity_alternative(target_db, 'set', (set_name,), param["alternative_name"])
             
             for oa in oa_ratio:
                 if oa["entity_byname"][0] == param["entity_byname"][0] and oa["entity_byname"][1] == param["entity_byname"][1]:
@@ -1234,7 +1236,7 @@ def process_activity_constraints(source_db, target_db):
                 continue
             param_map = api.from_database(param["value"], param["type"])
             set_name = param["entity_byname"][1] + "_max_annual_activity"
-            ines_transform.assert_success(target_db.add_entity_item(entity_class_name='set', entity_byname=(set_name,)), warn=True)
+            target_db = add_entity_and_entity_alternative(target_db, 'set', (set_name,), param["alternative_name"])
             
             for oa in oa_ratio:
                 if oa["entity_byname"][0] == param["entity_byname"][0] and oa["entity_byname"][1] == param["entity_byname"][1]:
@@ -1256,7 +1258,7 @@ def process_activity_constraints(source_db, target_db):
                 continue
             param_float = api.from_database(param["value"], param["type"])
             set_name = param["entity_byname"][1] + "_min_model_activity"
-            ines_transform.assert_success(target_db.add_entity_item(entity_class_name='set', entity_byname=(set_name,)), warn=True)
+            target_db = add_entity_and_entity_alternative(target_db, 'set', (set_name,), param["alternative_name"])
             
             for oa in oa_ratio:
                 if oa["entity_byname"][0] == param["entity_byname"][0] and oa["entity_byname"][1] == param["entity_byname"][1]:
@@ -1275,7 +1277,7 @@ def process_activity_constraints(source_db, target_db):
                 continue
             param_float = api.from_database(param["value"], param["type"])
             set_name = param["entity_byname"][1] + "_max_model_activity"
-            ines_transform.assert_success(target_db.add_entity_item(entity_class_name='set', entity_byname=(set_name,)), warn=True)
+            target_db = add_entity_and_entity_alternative(target_db, 'set', (set_name,), param["alternative_name"])
             
             for oa in oa_ratio:
                 if oa["entity_byname"][0] == param["entity_byname"][0] and oa["entity_byname"][1] == param["entity_byname"][1]:
@@ -1371,6 +1373,12 @@ def get_parameter_values_with_default(source_db, source_entity_class, source_par
                     })
     return params
 
+def add_entity_and_entity_alternative(target_db, entity_class_name, entity_byname, alternative_name):
+    ines_transform.assert_success(target_db.add_entity_item(entity_class_name = entity_class_name, entity_byname = entity_byname), warn=True)
+    ines_transform.assert_success(target_db.add_update_entity_alternative_item(entity_class_name=entity_class_name, entity_byname=entity_byname,
+                                                                               alternative_name=alternative_name, active=True), warn=True)
+    return target_db
+
 if __name__ == "__main__":
     if len(sys.argv) > 1:
         url_db_in = sys.argv[1]
@@ -1405,6 +1413,7 @@ if __name__ == "__main__":
     unlimited_unit_capacity = float(settings["unlimited_unit_capacity"])
     default_unit_size = float(settings["default_unit_size"])
     unit_to_penalty_boundary = float(settings["unit_to_penalty_boundary"])
+    default_interest_rate = float(settings["default_interest_rate"])
 
     capacity_unit_factor = float(settings["capacity_unit_to_MW_factor"])
     storage_unit_factor = float(settings["storage_capacity_unit_to_MWh_factor"])
