@@ -246,19 +246,21 @@ def process_timeslice_data(source_db, target_db, read_separate_csv):
     if error:
         exit("Could not add timeline parameter to ines-db: " + error)
 
+    #check for gaps in time series and create blocks of continuous time series
     datetime_block_start = datetime_indexes[0]
     datetime_block_starts = []
     datetime_block_durations = []
     for k, datetime_index in enumerate(datetime_indexes[:-1]):
-        if datetime_indexes[k + 1].value - datetime_index.value != datetime.timedelta(hours=int(time_durations[k])):
+        if round_to_nearest_minute(datetime_indexes[k + 1].value) - round_to_nearest_minute(datetime_index.value) > datetime.timedelta(hours=int(time_durations[k])):
             datetime_block_starts.append(datetime_block_start)
-            datetime_block_durations.append(api.Duration(relativedelta(datetime_index.value,
-                                                                       datetime_block_start.value)
+            datetime_block_durations.append(api.Duration(relativedelta(datetime_index.value, datetime_block_start.value)
                                                          + relativedelta(hours=int(time_durations[k]))))
             datetime_block_start = datetime_indexes[k + 1]
-    spine_array = api.Array(values=datetime_block_starts,
-                            #value_type=api.DateTime,
-                            index_name="datetime")
+    #if continous block until the end
+    if len(datetime_block_starts) == 0:
+        datetime_block_starts.append(datetime_block_start)
+        datetime_block_durations.append(api.Duration(relativedelta(datetime_indexes[-1].value, datetime_block_start.value)))
+    spine_array = api.Array(values=datetime_block_starts, index_name="datetime")
     p_value, p_type = api.to_database(spine_array)
     added, error = target_db.add_parameter_value_item(entity_class_name="solve_pattern",
                                                       parameter_definition_name="start_time",
@@ -268,8 +270,7 @@ def process_timeslice_data(source_db, target_db, read_separate_csv):
                                                       type=p_type)
     if error:
         print("process timeblock starttimes error: " + error)
-    spine_array = api.Array(values=datetime_block_durations,
-                            index_name="duration")
+    spine_array = api.Array(values=datetime_block_durations, index_name="duration")
     p_value, p_type = api.to_database(spine_array)
     added, error = target_db.add_parameter_value_item(entity_class_name="solve_pattern",
                                                       parameter_definition_name="duration",
@@ -921,8 +922,9 @@ def process_storages(source_db, target_db):
             for TechTS in TechnologyToStorage: 
                 if TechTS["entity_byname"][1] == technology["entity_byname"][0] and TechTS["entity_byname"][0] == rs["entity_byname"][0] and TechTS["entity_byname"][2] == rs["entity_byname"][1]:
                     toS = True
+            unit_name = f'{TechFS["entity_byname"][0]+"__"+TechFS["entity_byname"][1]}'
+            
             if fromS and toS:
-                unit_name = f'{TechFS["entity_byname"][0]+"__"+TechFS["entity_byname"][1]}'
                 unit_conversion_method = "two_way_linear"
                 p_value, p_type = api.to_database(unit_conversion_method)
                 added, updated, error = target_db.add_update_parameter_value_item(entity_class_name="unit",
@@ -930,15 +932,12 @@ def process_storages(source_db, target_db):
                                                                     alternative_name=TechFS["alternative_name"],
                                                                     parameter_definition_name="conversion_method",
                                                                     type=p_type,
-                                                                    value=p_value)
+                                                                    value=p_value)   
+            if fromS:
                 # add node_toUnit relationship
                 entity_byname = (rs["entity_byname"][0] + "__" + rs["entity_byname"][1], unit_name)
                 ines_transform.assert_success(target_db.add_entity_item(entity_class_name='node__to_unit', entity_byname=entity_byname), warn=True)
-            elif fromS:
-                # add node_toUnit relationship
-                entity_byname = (rs["entity_byname"][0] + "__" + rs["entity_byname"][1], unit_name)
-                ines_transform.assert_success(target_db.add_entity_item(entity_class_name='node__to_unit', entity_byname=entity_byname), warn=True)
-            elif toS:
+            if toS:
                 # add unit_toNode relationship
                 entity_byname = (unit_name, rs["entity_byname"][0] + "__" + rs["entity_byname"][1])
                 ines_transform.assert_success(target_db.add_entity_item(entity_class_name='unit__to_node', entity_byname=entity_byname), warn=True)
@@ -1378,6 +1377,10 @@ def add_entity_and_entity_alternative(target_db, entity_class_name, entity_bynam
     ines_transform.assert_success(target_db.add_update_entity_alternative_item(entity_class_name=entity_class_name, entity_byname=entity_byname,
                                                                                alternative_name=alternative_name, active=True), warn=True)
     return target_db
+
+def round_to_nearest_minute(dt):
+    new_seconds = (dt.second + 30) // 60 * 60  # Round seconds
+    return dt + datetime.timedelta(seconds=new_seconds - dt.second)
 
 if __name__ == "__main__":
     if len(sys.argv) > 1:
