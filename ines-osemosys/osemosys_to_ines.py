@@ -366,14 +366,21 @@ def process_capacities(source_db, target_db, datetime_indexes, timeslice_indexes
                                                 parameter_definition_name="TotalAnnualMaxCapacityInvestment")
     TotalAnnualMinCapacityInvestment = source_db.get_parameter_value_items(entity_class_name="REGION__TECHNOLOGY",
                                                 parameter_definition_name="TotalAnnualMinCapacityInvestment")
+    
+    source_unit_investment_cost_all = get_parameter_values_with_default(source_db, "REGION__TECHNOLOGY", "CapitalCost", use_default = True, ignore_default_value_of = None)
+    source_unit_fixed_cost_all = get_parameter_values_with_default(source_db, "REGION__TECHNOLOGY", "FixedCost", use_default = True, ignore_default_value_of = None)
+    source_unit_variable_cost_all = get_parameter_values_with_default(source_db, "REGION__TECHNOLOGY", "VariableCost", use_default = True, ignore_default_value_of = None)
+    operational_life_all = get_parameter_values_with_default(source_db, "REGION__TECHNOLOGY", "OperationalLife", use_default = True, ignore_default_value_of = None)
+    source_unit_interest_rate_all = get_parameter_values_with_default(source_db, "REGION__TECHNOLOGY", "DiscountRateIdv", use_default = True, ignore_default_value_of = None)
 
     for unit_source in source_db.get_entity_items(entity_class_name="REGION__TECHNOLOGY"):
-        source_unit_investment_cost = source_db.get_parameter_value_items(entity_class_name="REGION__TECHNOLOGY", entity_name=unit_source["name"], parameter_definition_name="CapitalCost")
-        source_unit_fixed_cost = source_db.get_parameter_value_items(entity_class_name="REGION__TECHNOLOGY", entity_name=unit_source["name"], parameter_definition_name="FixedCost")
-        source_unit_variable_cost = source_db.get_parameter_value_items(entity_class_name="REGION__TECHNOLOGY", entity_name=unit_source["name"], parameter_definition_name="VariableCost")
-
-        source_unit_interest_rate = source_db.get_parameter_value_items(entity_class_name="REGION__TECHNOLOGY", entity_name=unit_source["name"], parameter_definition_name="DiscountRateIdv")
-        source_region_interest_rate = source_db.get_parameter_value_items(entity_class_name="REGION", entity_name=unit_source["name"], parameter_definition_name="DiscountRate")
+        source_unit_investment_cost = [source for source in source_unit_investment_cost_all if source["entity_byname"] == unit_source["entity_byname"]]
+        source_unit_fixed_cost = [source for source in source_unit_fixed_cost_all if source["entity_byname"] == unit_source["entity_byname"]]
+        source_unit_variable_cost = [source for source in source_unit_variable_cost_all if source["entity_byname"] == unit_source["entity_byname"]]
+        operational_life = [source for source in operational_life_all if source["entity_byname"] == unit_source["entity_byname"]]
+        source_unit_interest_rate = [source for source in source_unit_interest_rate_all if source["entity_byname"] == unit_source["entity_byname"]]
+        
+        source_region_interest_rate = source_db.get_parameter_value_items(entity_class_name="REGION", entity_name=unit_source["entity_byname"][0], parameter_definition_name="DiscountRate")
         default_discount_rate = source_db.get_parameter_definition_item(entity_class_name="REGION", name="DiscountRate")
         unit_entity_alternatives = source_db.get_entity_alternative_items(entity_class_name="unit")
 
@@ -587,28 +594,34 @@ def process_capacities(source_db, target_db, datetime_indexes, timeslice_indexes
             alt_fixed_cost = alt_activity
             for source_param in source_unit_investment_cost:
                 alt = source_param["alternative_name"]
-                source_param = api.from_database(source_param["value"], "map")
-                source_param.values = [s * investment_unit_factor / a for s, a in zip(source_param.values, act_ratio)]
-                source_param.index_name = "period"
+                source_param = api.from_database(source_param["value"], source_param["type"])
+                if isinstance(source_param, api.Map):
+                    source_param.values = [s * investment_unit_factor / a for s, a in zip(source_param.values, act_ratio)]
+                    source_param.index_name = "period"
+                    if max(source_param.values) > 0 and min(source_param.values) == 0.0:
+                        exit("Investment cost 0 for some years and above 0 for others - don't know how to handle")
+                    if min(source_param.values) > 0:
+                        alt_inv_cost = alt_activity
+                else:
+                    if source_param > 0:
+                        alt_inv_cost = alt_activity
                 alt_ent_class = (alt, entity_byname, class_name)
                 target_db = ines_transform.add_item_to_DB(target_db, "investment_cost", alt_ent_class, source_param)
-                if max(source_param.values) > 0 and min(source_param.values) == 0.0:
-                    exit("Investment cost 0 for some years and above 0 for others - don't know how to handle")
-                if min(source_param.values) > 0:
-                    flag_allow_investments = True
-                    alt_inv_cost = alt_activity
             for source_param in source_unit_fixed_cost:
                 alt = source_param["alternative_name"]
-                source_param = api.from_database(source_param["value"], "map")
-                source_param.values = [s * investment_unit_factor / a for s, a in zip(source_param.values, act_ratio)]
-                source_param.index_name = "period"
+                source_param = api.from_database(source_param["value"], source_param["type"])
+                if isinstance(source_param, api.Map):
+                    source_param.values = [s * investment_unit_factor / a for s, a in zip(source_param.values, act_ratio)]
+                    source_param.index_name = "period"
+                    if max(source_param.values) > 0 and min(source_param.values) == 0.0:
+                        exit("Fixed cost 0 for some years and above 0 for others - don't know how to handle")
+                    if min(source_param.values) > 0:
+                        alt_fixed_cost = alt_activity
+                else:
+                    if source_param > 0:
+                        alt_fixed_cost = alt_activity
                 alt_ent_class = (alt, entity_byname, class_name)
                 target_db = ines_transform.add_item_to_DB(target_db, "fixed_cost", alt_ent_class, source_param)
-                if max(source_param.values) > 0 and min(source_param.values) == 0.0:
-                    exit("Fixed cost 0 for some years and above 0 for others - don't know how to handle")
-                if min(source_param.values) > 0:
-                    flag_allow_investments = True
-                    alt_fixed_cost = alt_activity
             
             #find interest rate from either from the entity itself, region or region's default value
             interest_rate = None
@@ -629,6 +642,12 @@ def process_capacities(source_db, target_db, datetime_indexes, timeslice_indexes
                             alt = unit["entity_alternative_name"]
             if interest_rate:
                 target_db = ines_transform.add_item_to_DB(target_db, "interest_rate", (alt, unit_byname, "unit"), interest_rate)
+
+            #If lifetime exists, invesments are allowed. No costs are needed.
+            for source_param in operational_life:
+                operational_life_value = api.from_database(source_param["value"], source_param["type"])
+                if operational_life_value and operational_life_value > 0:
+                    flag_allow_investments = True
 
             if flag_allow_investments:
                 if flag_limit_cumulative_investments:
@@ -651,12 +670,13 @@ def process_capacities(source_db, target_db, datetime_indexes, timeslice_indexes
                 # Not doing this, since it's messy, instead exiting above if more than one act_ratio_dict:
                 # alt = alternative_name_from_two(source_param["alternative_name"], alt_activity, target_db)
                 alt = source_param["alternative_name"]
-                source_param = api.from_database(source_param["value"], "map")
-                if isinstance(source_param.values[0], api.Map):
-                    print("Only one mode_of_operation is allowed, taking the first one.")
-                    source_param = source_param.values[0]  # Bypass mode_of_operation dimension (assume there is only one)
-                source_param.values = [s * variable_cost_unit_factor / a / 8760 for s, a in zip(source_param.values, act_ratio)]
-                source_param.index_name = "period"
+                source_param = api.from_database(source_param["value"], source_param["type"])
+                if isinstance(source_param, api.Map):
+                    if isinstance(source_param.values[0], api.Map):
+                        print("Only one mode_of_operation is allowed, taking the first one.")
+                        source_param = source_param.values[0]  # Bypass mode_of_operation dimension (assume there is only one)
+                    source_param.values = [s * variable_cost_unit_factor / a / 8760 for s, a in zip(source_param.values, act_ratio)]
+                    source_param.index_name = "period"
                 alt_ent_class = (alt, entity_byname, class_name)
                 target_db = ines_transform.add_item_to_DB(target_db, "other_operational_cost", alt_ent_class, source_param)
 
@@ -766,6 +786,23 @@ def process_zero_investment_cost(source_db, target_db):
                                                           alternative_name=alt["name"],
                                                           parameter_definition_name="OperationalLife")
             
+            if not invest_cost:
+                param_def_item = source_db.get_parameter_definition_item(entity_class_name="REGION__TECHNOLOGY", name=unit["entity_byname"]) 
+                if param_def_item and param_def_item["default_value"] and param_def_item["default_value"] > 0:
+                    invest_cost = param_def_item["default_value"]
+            if not fixed_cost:
+                param_def_item = source_db.get_parameter_definition_item(entity_class_name="REGION__TECHNOLOGY", name=unit["entity_byname"]) 
+                if param_def_item and param_def_item["default_value"] and param_def_item["default_value"] > 0:
+                    fixed_cost = param_def_item["default_value"]
+            if not existing:
+                param_def_item = source_db.get_parameter_definition_item(entity_class_name="REGION__TECHNOLOGY", name=unit["entity_byname"]) 
+                if param_def_item and param_def_item["default_value"] and param_def_item["default_value"] > 0:
+                    existing = param_def_item["default_value"]
+            if not operational_life:
+                param_def_item = source_db.get_parameter_definition_item(entity_class_name="REGION__TECHNOLOGY", name=unit["entity_byname"]) 
+                if param_def_item and param_def_item["default_value"] and param_def_item["default_value"] > 0:
+                    operational_life = param_def_item["default_value"]
+
             if invest_cost:
                 for i in invest_cost["parsed_value"].values:
                     if i == 0:
@@ -832,7 +869,6 @@ def process_zero_investment_cost(source_db, target_db):
                                                                           entity_byname=unit__node["entity_byname"],
                                                                           alternative_name=alt["name"],
                                                                           parameter_definition_name="OutputActivityRatio")
-                            # output_activity_ratio =
                             node_name = unit__node["entity_byname"][0] + "__" + unit__node["entity_byname"][2]
                             # Ignore mode of operation and just take the output activity ratios
                             oa_ratio_list = oa_ratio["parsed_value"].values[0].values
@@ -863,22 +899,16 @@ def process_demands(source_db, target_db, datetime_indexes):
     SpecifiedAnnualDemand = source_db.get_parameter_value_items(entity_class_name="REGION__FUEL", parameter_definition_name="SpecifiedAnnualDemand")
 
     for region_fuel in region__fuels:
-        demand = False
         for param in AccumulatedAnnualDemand:
             if param["entity_byname"] == region_fuel["entity_byname"]:
                 alt_ent_class = [param["alternative_name"], (param["entity_byname"][0]+"__"+param["entity_byname"][1],), "node"] 
                 param_map = api.from_database(param["value"], param["type"])
                 if isinstance(param_map, float):
-                    target_db = ines_transform.add_item_to_DB(target_db, "flow_annual", alt_ent_class, param_map)
+                    target_db = ines_transform.add_item_to_DB(target_db, "flow_annual", alt_ent_class, -param_map)
                 else:
-                    param_map.values = [x * demand_unit_factor  for x in param_map.values]
+                    param_map.values = [-x * demand_unit_factor  for x in param_map.values]
                     target_db = ines_transform.add_item_to_DB(target_db, "flow_annual", alt_ent_class, param_map)
                 
-                values = [1.0 for i in datetime_indexes]
-                timeline_map = api.TimeSeriesVariableResolution(datetime_indexes, values, ignore_year=False, repeat=False, index_name="timestamp")
-                target_db = ines_transform.add_item_to_DB(target_db, "flow_profile", alt_ent_class, timeline_map)
-                demand = True
-
         for param in SpecifiedAnnualDemand:
             if param["entity_byname"] == region_fuel["entity_byname"]:
                 alt_ent_class = [param["alternative_name"], (param["entity_byname"][0]+"__"+param["entity_byname"][1],), "node"] 
@@ -888,9 +918,7 @@ def process_demands(source_db, target_db, datetime_indexes):
                 else:
                     param_map.values = [x * demand_unit_factor  for x in param_map.values]
                     target_db = ines_transform.add_item_to_DB(target_db, "flow_annual", alt_ent_class, param_map)
-                demand = True
-        if demand:
-            target_db = ines_transform.add_item_to_DB(target_db, "flow_scaling_method", alt_ent_class, "scale_to_annual")
+                target_db = ines_transform.add_item_to_DB(target_db, "flow_scaling_method", alt_ent_class, "scale_to_annual")
         
     return target_db
 
@@ -1347,17 +1375,24 @@ def alternative_name_from_two(alt_i, alt_o, target_db):
     return alt
 
 
-def get_parameter_values_with_default(source_db, source_entity_class, source_param, use_default = False, ignore_default_value_of = None):
+def get_parameter_values_with_default(source_db, source_entity_class, source_param, use_default = False, ignore_default_value_of = None, entity_byname = None, alternative_name = None):
     entities = source_db.get_entity_items(entity_class_name=source_entity_class) if use_default else None
     param_def_item = source_db.get_parameter_definition_item(
-    entity_class_name=source_entity_class, name=source_param
-    ) if use_default else None
+                        entity_class_name=source_entity_class, name=source_param
+                        ) if use_default else None
 
     # Get all parameter values at once
-    params = source_db.get_parameter_value_items(
-        entity_class_name=source_entity_class,
-        parameter_definition_name=source_param,
-    )
+    if alternative_name:
+        params = source_db.get_parameter_value_items(
+            entity_class_name=source_entity_class,
+            parameter_definition_name=source_param,
+            alternative_name=alternative_name
+        )
+    else:
+        params = source_db.get_parameter_value_items(
+            entity_class_name=source_entity_class,
+            parameter_definition_name=source_param,
+        )
 
     if use_default:
         if ignore_default_value_of != api.from_database(param_def_item["default_value"], param_def_item["default_type"]):
