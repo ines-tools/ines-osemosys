@@ -675,8 +675,10 @@ def process_capacities(source_db, target_db, datetime_indexes, timeslice_indexes
                     if isinstance(source_param.values[0], api.Map):
                         print("Only one mode_of_operation is allowed, taking the first one.")
                         source_param = source_param.values[0]  # Bypass mode_of_operation dimension (assume there is only one)
-                    source_param.values = [s * variable_cost_unit_factor / a / 8760 for s, a in zip(source_param.values, act_ratio)]
+                    source_param.values = [s * variable_cost_unit_factor / a for s, a in zip(source_param.values, act_ratio)]
                     source_param.index_name = "period"
+                else:
+                    source_param = source_param * variable_cost_unit_factor / act_ratio[0]
                 alt_ent_class = (alt, entity_byname, class_name)
                 target_db = ines_transform.add_item_to_DB(target_db, "other_operational_cost", alt_ent_class, source_param)
 
@@ -904,7 +906,7 @@ def process_demands(source_db, target_db, datetime_indexes):
                 alt_ent_class = [param["alternative_name"], (param["entity_byname"][0]+"__"+param["entity_byname"][1],), "node"] 
                 param_map = api.from_database(param["value"], param["type"])
                 if isinstance(param_map, float):
-                    target_db = ines_transform.add_item_to_DB(target_db, "flow_annual", alt_ent_class, -param_map)
+                    target_db = ines_transform.add_item_to_DB(target_db, "flow_annual", alt_ent_class, -param_map * demand_unit_factor)
                 else:
                     param_map.values = [-x * demand_unit_factor  for x in param_map.values]
                     target_db = ines_transform.add_item_to_DB(target_db, "flow_annual", alt_ent_class, param_map)
@@ -914,7 +916,7 @@ def process_demands(source_db, target_db, datetime_indexes):
                 alt_ent_class = [param["alternative_name"], (param["entity_byname"][0]+"__"+param["entity_byname"][1],), "node"] 
                 param_map = api.from_database(param["value"], param["type"])
                 if isinstance(param_map, float):
-                    target_db = ines_transform.add_item_to_DB(target_db, "flow_annual", alt_ent_class, param_map)
+                    target_db = ines_transform.add_item_to_DB(target_db, "flow_annual", alt_ent_class, param_map * demand_unit_factor)
                 else:
                     param_map.values = [x * demand_unit_factor  for x in param_map.values]
                     target_db = ines_transform.add_item_to_DB(target_db, "flow_annual", alt_ent_class, param_map)
@@ -1375,7 +1377,7 @@ def alternative_name_from_two(alt_i, alt_o, target_db):
     return alt
 
 
-def get_parameter_values_with_default(source_db, source_entity_class, source_param, use_default = False, ignore_default_value_of = None, entity_byname = None, alternative_name = None):
+def get_parameter_values_with_default(source_db, source_entity_class, source_param, alternative_name = None, use_default = True, ignore_default_value_of = None):
     entities = source_db.get_entity_items(entity_class_name=source_entity_class) if use_default else None
     param_def_item = source_db.get_parameter_definition_item(
                         entity_class_name=source_entity_class, name=source_param
