@@ -1,5 +1,6 @@
 import spinedb_api as api
 from spinedb_api import DatabaseMapping
+from spinedb_api.exception import NothingToCommit
 from pathlib import Path
 try:
     from ines_tools import ines_transform
@@ -14,6 +15,7 @@ import sys
 import csv
 from sys import exit
 import yaml
+import numpy as np
 import itertools
 import datetime
 from dateutil.relativedelta import relativedelta
@@ -293,7 +295,7 @@ def process_timeslice_data(source_db, target_db, read_separate_csv):
     for year_split in year_splits:
         year_split_data = api.from_database(year_split["value"], year_split["type"])
         target_db = add_timeslice_data(source_db, target_db, year_split_data, time_durations,
-                                       "REGION__FUEL", "SpecifiedDemandProfile", "node", "flow_profile",
+                                       ["REGION__FUEL", "REGION__COMMODITY"], "SpecifiedDemandProfile", "node", "flow_profile",
                                        timeslice_indexes, datetime_indexes, -1.0, True)
         #target_db = add_timeslice_data(source_db, target_db, year_split_data,
         #                               "REGION__TECHNOLOGY", "CapacityFactor", "unit", "availability",
@@ -301,7 +303,7 @@ def process_timeslice_data(source_db, target_db, read_separate_csv):
     return target_db, datetime_indexes, timeslice_indexes, year_splits
 
 
-def get_timeslice_value(year_split_data, source_param, source_class,
+def get_timeslice_value(year_split_data, source_param, source_class_name,
                        source_param_name, timeslice_indexes, datetime_indexes,
                        multiplier, scale_with_time, time_durations = None):
     profile_data = source_param["parsed_value"]
@@ -315,11 +317,15 @@ def get_timeslice_value(year_split_data, source_param, source_class,
             timeslice_profiles[profile_data.indexes[s]] = multiplier * \
                                                             round(float(profile_data_by_slices.values[0]), 6)  # Note that this takes the first value from the array of years (first year)
     datetime_profiles = []
+    not_found_timeslices = False
     for t, timeslice_index in enumerate(timeslice_indexes):
         if timeslice_index not in timeslice_profiles.keys():
-            print(f'Timeslice index {timeslice_index} not found in timeslice profiles for {source_class["name"]} parameter {source_param_name}')
-            sys.exit(-1)
-        datetime_profiles.append(timeslice_profiles[timeslice_index])
+            if not not_found_timeslices:
+                print(f'Timeslice index {timeslice_index} not found in timeslice profiles for {source_class_name} parameter {source_param_name}, replacing with 0.0')
+                not_found_timeslices = True
+            datetime_profiles.append(0.0)
+        else:
+            datetime_profiles.append(timeslice_profiles[timeslice_index])
     if scale_with_time:
         datetime_profiles = [round(float(dp) * time_durations[t], 6) for t, dp in enumerate(datetime_profiles)]
     to_db_profile_data = api.TimeSeriesVariableResolution(
@@ -333,35 +339,38 @@ def get_timeslice_value(year_split_data, source_param, source_class,
     return profile_data_divided, p_type,
 
 def add_timeslice_data(source_db, target_db, year_split_data, time_durations, source_class_name,
-                       source_param_name, target_class_name, target_param_name, timeslice_indexes, datetime_indexes,
+                       source_param_names, target_class_name, target_param_name, timeslice_indexes, datetime_indexes,
                        multiplier, scale_with_time):
     for source_class in source_db.get_entity_items(entity_class_name=source_class_name):
-        for source_param in source_db.get_parameter_value_items(entity_class_name=source_class_name,
-                                                                 entity_name=source_class["name"],
-                                                                 parameter_definition_name=source_param_name):
+        for source_param_name in source_param_names:
+            for source_param in source_db.get_parameter_value_items(entity_class_name=source_class_name,
+                                                                     entity_name=source_class["name"],
+                                                                     parameter_definition_name=source_param_name):
             
-            profile_data_divided, p_type = get_timeslice_value(year_split_data, source_param, source_class, source_param_name, 
-                                                               timeslice_indexes, datetime_indexes, multiplier, scale_with_time, 
-                                                               time_durations = time_durations)
-            target_entity_byname = tuple(['__'.join(source_param["entity_byname"])])
-            added, error = target_db.add_parameter_value_item(entity_class_name=target_class_name,
-                                                                parameter_definition_name=target_param_name,
-                                                                entity_byname=target_entity_byname,
-                                                                alternative_name=source_param["alternative_name"],
-                                                                value=profile_data_divided,
-                                                                type=p_type)
-            if error:
-                print("process timeslice data error: " + error)
+                profile_data_divided, p_type = get_timeslice_value(year_split_data, source_param, source_class["name"], source_param_name, 
+                                                                timeslice_indexes, datetime_indexes, multiplier, scale_with_time, 
+                                                                time_durations = time_durations)
+                target_entity_byname = tuple(['__'.join(source_param["entity_byname"])])
+                added, error = target_db.add_parameter_value_item(entity_class_name=target_class_name,
+                                                                    parameter_definition_name=target_param_name,
+                                                                    entity_byname=target_entity_byname,
+                                                                    alternative_name=source_param["alternative_name"],
+                                                                    value=profile_data_divided,
+                                                                    type=p_type)
+                if error:
+                    print("process timeslice data error: " + error)
     try:
         target_db.commit_session("Added parameter values for timeslice data")
     except DBAPIError as e:
         print("failed to add parameter values for timeslice data")
         print(e)
+    except NothingToCommit:
+        print("Timeslice data for parameter " + target_param_name + " not found")
     return target_db
 
 
 def process_capacities(source_db, target_db, datetime_indexes, timeslice_indexes, year_splits):
-    region__tech__fuel_entities = source_db.get_entity_items(entity_class_name="REGION__TECHNOLOGY__FUEL")
+    region__tech__fuel_entities = source_db.get_entity_items(entity_class_name="REGION__TECHNOLOGY__FUEL") + source_db.get_entity_items(entity_class_name="REGION__TECHNOLOGY__COMMODITY")
     TotalAnnualMaxCapacityInvestment = source_db.get_parameter_value_items(entity_class_name="REGION__TECHNOLOGY",
                                                 parameter_definition_name="TotalAnnualMaxCapacityInvestment")
     TotalAnnualMinCapacityInvestment = source_db.get_parameter_value_items(entity_class_name="REGION__TECHNOLOGY",
@@ -396,11 +405,17 @@ def process_capacities(source_db, target_db, datetime_indexes, timeslice_indexes
             if rtf_ent["entity_byname"][0] + rtf_ent["entity_byname"][1] == unit_source["entity_byname"][0] + unit_source["entity_byname"][1]:
                 temp = source_db.get_parameter_value_items(entity_class_name="REGION__TECHNOLOGY__FUEL",
                                                            entity_name=rtf_ent["name"],
+                                                           parameter_definition_name="InputActivityRatio") + \
+                    source_db.get_parameter_value_items(entity_class_name="REGION__TECHNOLOGY__COMMODITY",
+                                                           entity_name=rtf_ent["name"],
                                                            parameter_definition_name="InputActivityRatio")
                 if temp:
                     input_act_params.extend(temp)
                     input_names.append(rtf_ent["entity_byname"])
                 temp = source_db.get_parameter_value_items(entity_class_name="REGION__TECHNOLOGY__FUEL",
+                                                           entity_name=rtf_ent["name"],
+                                                           parameter_definition_name="OutputActivityRatio") + \
+                        source_db.get_parameter_value_items(entity_class_name="REGION__TECHNOLOGY__COMMODITY",
                                                            entity_name=rtf_ent["name"],
                                                            parameter_definition_name="OutputActivityRatio")
                 if temp:
@@ -453,16 +468,19 @@ def process_capacities(source_db, target_db, datetime_indexes, timeslice_indexes
             output_list = []
             alt_set = set()
             alt_list = []
-            for k, input_ar in enumerate(next(iter(input_act_ratio.values()))):
-                input_list.append({})
-                for alt_i, iar in input_ar.items():
-                    input_list[k][alt_i] = iar
-                    alt_set.add(alt_i)
-            for k, output_ar in enumerate(next(iter(output_act_ratio.values()))):
-                output_list.append({})
-                for alt_o, oar in output_ar.items():
-                    output_list[k][alt_o] = oar
-                    alt_set.add(alt_o)
+            if len(input_act_ratio) > 0:
+                for k, input_ar_list in enumerate(input_act_ratio.values()):
+                    for input_ar in input_ar_list:
+                        input_list.append({})
+                        for alt_i, iar in input_ar.items():
+                            input_list[k][alt_i] = iar
+                            alt_set.add(alt_i)
+            if len(output_act_ratio) > 0:
+                for k, output_ar in enumerate(next(iter(output_act_ratio.values()))):
+                    output_list.append({})
+                    for alt_o, oar in output_ar.items():
+                        output_list[k][alt_o] = oar
+                        alt_set.add(alt_o)
             for k in range(len(alt_set)):
                 alt_list.extend(list(itertools.combinations(alt_set, k + 1)))
 
@@ -483,8 +501,9 @@ def process_capacities(source_db, target_db, datetime_indexes, timeslice_indexes
                 if len(input_values) == len(input_list) and len(output_values) == len(output_list):
                     summed_output = [sum(x) for x in zip(*output_values)]
                     summed_input = [sum(x) for x in zip(*input_values)]
-                    alt_ent_class = (alt, (unit_source["name"],), "unit")
-                    target_db = ines_transform.add_item_to_DB(target_db, "efficiency", alt_ent_class, summed_output[0] / summed_input[0])
+                    if summed_input and summed_output:
+                        alt_ent_class = (alt, (unit_source["name"],), "unit")
+                        target_db = ines_transform.add_item_to_DB(target_db, "efficiency", alt_ent_class, summed_output[0] / summed_input[0])
             if len(output_values) > 1: # if there are multiple outputs, we need to fix the ratio of the flows
                 output_1 = None
                 alt_1 = None
@@ -520,8 +539,13 @@ def process_capacities(source_db, target_db, datetime_indexes, timeslice_indexes
             entity_byname = input_names[0]
             entity_byname = (entity_byname[0] + "__" + entity_byname[2], entity_byname[0] + "__" + entity_byname[1])
             class_name = "node__to_unit"
+        elif len(input_act_ratio) == 0 and len(output_act_ratio) > 1:
+            entity_byname = output_names[0]
+            entity_byname = (entity_byname[0] + "__" + entity_byname[1], entity_byname[0] + "__" + entity_byname[2])
+            class_name = "unit__to_node"
         else:
-            exit("Not handling multiple inputs together with multiple outputs. Error in entity: " + unit_source["name"])
+            print("Not handling multiple inputs together with multiple outputs. Error in entity: " + unit_source["name"])
+            continue
         
         # Get the possible capacity of one technology unit
         source_CapacityOfOneTechnologyUnit = source_db.get_parameter_value_items(entity_class_name="REGION__TECHNOLOGY", entity_name=unit_source["name"], parameter_definition_name="CapacityOfOneTechnologyUnit")
@@ -543,7 +567,7 @@ def process_capacities(source_db, target_db, datetime_indexes, timeslice_indexes
             if class_name == "node__to_unit":
                 unit_byname = (entity_byname[1],)
             if any(x != act_ratio_list[0] for x in act_ratio_list):
-                exit("The unit changes it's activity ratio between years - this is not handled. Entity: " + entity_byname)
+                print(f"The unit changes it's activity ratio between years - Taking the first value. Entity: {entity_byname}")
             act_ratio = act_ratio_list[0]
             unit_capacity =  cap * act_ratio
             alt_ent_class = (alt_activity, entity_byname, class_name)
@@ -635,11 +659,12 @@ def process_capacities(source_db, target_db, datetime_indexes, timeslice_indexes
                         interest_rate = api.from_database(source_param["value"], source_param["type"])
                         alt = source_param["alternative_name"]
             if not interest_rate:
-                if default_discount_rate["default_value"]:
-                    interest_rate = api.from_database(default_discount_rate["default_value"], default_discount_rate["default_type"])
-                    for unit in unit_entity_alternatives:
-                        if unit["entity_byname"] == unit_source["entity_byname"]:
-                            alt = unit["entity_alternative_name"]
+                if default_discount_rate:
+                    if default_discount_rate["default_value"]:
+                        interest_rate = api.from_database(default_discount_rate["default_value"], default_discount_rate["default_type"])
+                        for unit in unit_entity_alternatives:
+                            if unit["entity_byname"] == unit_source["entity_byname"]:
+                                alt = unit["entity_alternative_name"]
             if interest_rate:
                 target_db = ines_transform.add_item_to_DB(target_db, "interest_rate", (alt, unit_byname, "unit"), interest_rate)
 
@@ -735,29 +760,58 @@ def params_to_dict(params):
 def process_model_level(source_db, target_db):
     discount_rate = source_db.get_parameter_definition_item(entity_class_name="REGION",
                                                             name="DiscountRate")
-    model_entities = source_db.get_entity_items(entity_class_name="model")
-    for model_entity in model_entities:
-        model_entity_alternatives = source_db.get_entity_alternative_items(entity_class_name="model",
-                                                                           entity_name=model_entity["name"])
-        for model_entity_alternative in model_entity_alternatives:
-            added, error = target_db.add_parameter_value_item(entity_class_name="system",
-                                                              entity_byname=(model_entity["name"], ),
-                                                              parameter_definition_name="discount_rate",
-                                                              alternative_name=model_entity_alternative["alternative_name"],
-                                                              type=discount_rate["default_type"],
-                                                              value=discount_rate["default_value"])
-            if error:
-                exit("Error when trying to add discount_rate: " + error)
+    if discount_rate:
+        model_entities = source_db.get_entity_items(entity_class_name="model")
+        for model_entity in model_entities:
+            model_entity_alternatives = source_db.get_entity_alternative_items(entity_class_name="model",
+                                                                            entity_name=model_entity["name"])
+            for model_entity_alternative in model_entity_alternatives:
+                added, error = target_db.add_parameter_value_item(entity_class_name="system",
+                                                                entity_byname=(model_entity["name"], ),
+                                                                parameter_definition_name="discount_rate",
+                                                                alternative_name=model_entity_alternative["alternative_name"],
+                                                                type=discount_rate["default_type"],
+                                                                value=discount_rate["default_value"])
+                if error:
+                    exit("Error when trying to add discount_rate: " + error)
 
     try:
         target_db.commit_session("Added special model level parameters")
-    except:
-        print("failed to add special model level parameters")
+    except DBAPIError as e:
+        print("failed to add special model level parameters", e)
+    except NothingToCommit:
+        print("No model level parameters to add")
 
     return target_db
 
+def check_if_zero(source_db, entity_class_name, entity_byname, alternative_name, parameter_definition_name):
+    param_value_item = source_db.get_parameter_value_item(entity_class_name=entity_class_name,
+                                                         entity_byname=entity_byname,
+                                                         alternative_name=alternative_name,
+                                                         parameter_definition_name=parameter_definition_name)
+    param_value = None
+    if param_value_item:
+        param_value = api.from_database(param_value_item["value"], param_value_item["type"])
+    else:
+        param_def_item = source_db.get_parameter_definition_item(entity_class_name=entity_class_name, name=parameter_definition_name) 
+        if param_def_item and param_def_item["default_value"] and api.from_database(param_def_item["default_value"],param_def_item["default_type"]) > 0:
+            param_value = api.from_database(param_def_item["default_value"],param_def_item["default_type"])
+
+        if not param_value:
+            return True
+    
+    if isinstance(param_value, float):
+        if param_value == 0:
+            return True
+    else:
+        for v in param_value.values:
+            if v == 0:
+                return True
+    return False
 
 def process_zero_investment_cost(source_db, target_db):
+    #Osemosys creates unilimited sources by having investment cost of zero, other models do not like this
+    #Here we change these units to "unlimited" capacity and disabling the investments 
     units = source_db.get_entity_items(entity_class_name="REGION__TECHNOLOGY")
     alts = source_db.get_alternative_items()
     for alt in alts:
@@ -767,72 +821,14 @@ def process_zero_investment_cost(source_db, target_db):
             if not any(unit_alt["alternative_name"] == alt["name"] and unit_alt["active"] is True for unit_alt in unit_alternatives):
                 continue
 
-            flag_invest_zero = False
-            flag_fixed_zero = False
-            flag_existing_zero = False
-            flag_operational_life_zero = False
-            invest_cost = source_db.get_parameter_value_item(entity_class_name="REGION__TECHNOLOGY",
-                                                             entity_byname=unit["entity_byname"],
-                                                             alternative_name=alt["name"],
-                                                             parameter_definition_name="CapitalCost")
-            fixed_cost = source_db.get_parameter_value_item(entity_class_name="REGION__TECHNOLOGY",
-                                                            entity_byname=unit["entity_byname"],
-                                                            alternative_name=alt["name"],
-                                                            parameter_definition_name="FixedCost")
-            existing = source_db.get_parameter_value_item(entity_class_name="REGION__TECHNOLOGY",
-                                                          entity_byname=unit["entity_byname"],
-                                                          alternative_name=alt["name"],
-                                                          parameter_definition_name="ResidualCapacity")
-            operational_life = source_db.get_parameter_value_item(entity_class_name="REGION__TECHNOLOGY",
-                                                          entity_byname=unit["entity_byname"],
-                                                          alternative_name=alt["name"],
-                                                          parameter_definition_name="OperationalLife")
-            
-            if not invest_cost:
-                param_def_item = source_db.get_parameter_definition_item(entity_class_name="REGION__TECHNOLOGY", name=unit["entity_byname"]) 
-                if param_def_item and param_def_item["default_value"] and param_def_item["default_value"] > 0:
-                    invest_cost = param_def_item["default_value"]
-            if not fixed_cost:
-                param_def_item = source_db.get_parameter_definition_item(entity_class_name="REGION__TECHNOLOGY", name=unit["entity_byname"]) 
-                if param_def_item and param_def_item["default_value"] and param_def_item["default_value"] > 0:
-                    fixed_cost = param_def_item["default_value"]
-            if not existing:
-                param_def_item = source_db.get_parameter_definition_item(entity_class_name="REGION__TECHNOLOGY", name=unit["entity_byname"]) 
-                if param_def_item and param_def_item["default_value"] and param_def_item["default_value"] > 0:
-                    existing = param_def_item["default_value"]
-            if not operational_life:
-                param_def_item = source_db.get_parameter_definition_item(entity_class_name="REGION__TECHNOLOGY", name=unit["entity_byname"]) 
-                if param_def_item and param_def_item["default_value"] and param_def_item["default_value"] > 0:
-                    operational_life = param_def_item["default_value"]
-
-            if invest_cost:
-                for i in invest_cost["parsed_value"].values:
-                    if i == 0:
-                        flag_invest_zero = True
-                        break
-            else:
-                flag_invest_zero = True
-            if fixed_cost:
-                for f in fixed_cost["parsed_value"].values:
-                    if f == 0:
-                        flag_fixed_zero = True
-                        break
-            else:
-                flag_fixed_zero = True
-            if existing:
-                for e in existing["parsed_value"].values:
-                    if e == 0:
-                        flag_existing_zero = True
-                        break
-            else:
-                flag_existing_zero = True
-            if operational_life:
-                for e in existing["parsed_value"].values:
-                    if e == 0:
-                        flag_operational_life_zero = True
-                        break
-            else:
-                flag_operational_life_zero = True
+            flag_invest_zero = check_if_zero(source_db, entity_class_name="REGION__TECHNOLOGY", entity_byname=unit["entity_byname"], 
+                                             alternative_name=alt["name"], parameter_definition_name="CapitalCost")
+            flag_fixed_zero = check_if_zero(source_db, entity_class_name="REGION__TECHNOLOGY", entity_byname=unit["entity_byname"],
+                                             alternative_name=alt["name"], parameter_definition_name="FixedCost")
+            flag_existing_zero = check_if_zero(source_db, entity_class_name="REGION__TECHNOLOGY", entity_byname=unit["entity_byname"],
+                                             alternative_name=alt["name"], parameter_definition_name="ResidualCapacity")
+            flag_operational_life_zero = check_if_zero(source_db, entity_class_name="REGION__TECHNOLOGY", entity_byname=unit["entity_byname"],
+                                             alternative_name=alt["name"], parameter_definition_name="OperationalLife")
 
             if flag_existing_zero and flag_operational_life_zero:
                 break #if no operational life, unit cannot be invested in osemosys, if also no residual capacity, the unit does not exist.
@@ -849,6 +845,13 @@ def process_zero_investment_cost(source_db, target_db):
                                                                                   parameter_definition_name="units_existing",
                                                                                   type=p_type,
                                                                                   value=p_value)
+                p_value, p_type = api.to_database("not_allowed")
+                added, updated, error = target_db.add_update_parameter_value_item(entity_class_name="unit",
+                                                              entity_byname=(unit["name"],),
+                                                              parameter_definition_name="investment_method",
+                                                              alternative_name=alt["name"],  # This is not really satisfactory, if there are values across different alternatives. Tries to do something, but it's shaky.
+                                                              value=p_value,
+                                                              type=p_type)
                 if error:
                     exit("Failed to add existing capacity for a unit without investment cost or existing capacity: " + error)
 
@@ -864,13 +867,19 @@ def process_zero_investment_cost(source_db, target_db):
                                                                                          active=False)
                     if error:
                         exit("Failed to inactivate unit that was being turned into node penalty cost: " + error)
-                    unit__nodes = source_db.get_entity_items(entity_class_name="REGION__TECHNOLOGY__FUEL")
+                    unit__nodes = source_db.get_entity_items(entity_class_name="REGION__TECHNOLOGY__FUEL") + source_db.get_entity_items(entity_class_name="REGION__TECHNOLOGY__COMMODITY")
                     for unit__node in unit__nodes:
                         if unit__node["entity_byname"][0:2] == unit["entity_byname"]:
-                            oa_ratio = source_db.get_parameter_value_item(entity_class_name="REGION__TECHNOLOGY__FUEL",
+
+                            oa_rat = source_db.get_parameter_value_item(entity_class_name="REGION__TECHNOLOGY__FUEL",
                                                                           entity_byname=unit__node["entity_byname"],
                                                                           alternative_name=alt["name"],
                                                                           parameter_definition_name="OutputActivityRatio")
+                            oa_rat2 = source_db.get_parameter_value_item(entity_class_name="REGION__TECHNOLOGY__COMMODITY",
+                                                                          entity_byname=unit__node["entity_byname"],
+                                                                          alternative_name=alt["name"],
+                                                                          parameter_definition_name="OutputActivityRatio")
+                            oa_ratio = oa_rat if oa_rat else oa_rat2 if oa_rat2 else None
                             node_name = unit__node["entity_byname"][0] + "__" + unit__node["entity_byname"][2]
                             # Ignore mode of operation and just take the output activity ratios
                             oa_ratio_list = oa_ratio["parsed_value"].values[0].values
@@ -890,15 +899,19 @@ def process_zero_investment_cost(source_db, target_db):
                                     "Failed to add penalty price based on the variable cost of a unit without investment cost or existing capacity but node with demand: " + error)
     try:
         target_db.commit_session("Inactivated units without investment costs and existing capacity. Instead use commodity price of the node")
-    except:
-        print("failed to process units without investment costs and existing capacity")
+    except DBAPIError as e:
+        print("failed to process units without investment costs and existing capacity", e)
+    except NothingToCommit:
+        print("No zero investment cost units to process")
     return target_db
 
 def process_demands(source_db, target_db, datetime_indexes):
 
-    region__fuels = source_db.get_entity_items(entity_class_name="REGION__FUEL")
-    AccumulatedAnnualDemand = source_db.get_parameter_value_items(entity_class_name="REGION__FUEL", parameter_definition_name="AccumulatedAnnualDemand")    
-    SpecifiedAnnualDemand = source_db.get_parameter_value_items(entity_class_name="REGION__FUEL", parameter_definition_name="SpecifiedAnnualDemand")
+    region__fuels = source_db.get_entity_items(entity_class_name="REGION__FUEL") + source_db.get_entity_items(entity_class_name="REGION__COMMODITY")
+    AccumulatedAnnualDemand = source_db.get_parameter_value_items(entity_class_name="REGION__FUEL", parameter_definition_name="AccumulatedAnnualDemand") + \
+                                 source_db.get_parameter_value_items(entity_class_name="REGION__COMMODITY", parameter_definition_name="AccumulatedAnnualDemand")
+    SpecifiedAnnualDemand = source_db.get_parameter_value_items(entity_class_name="REGION__FUEL", parameter_definition_name="SpecifiedAnnualDemand") + \
+                             source_db.get_parameter_value_items(entity_class_name="REGION__COMMODITY", parameter_definition_name="SpecifiedAnnualDemand")
 
     for region_fuel in region__fuels:
         for param in AccumulatedAnnualDemand:
@@ -949,11 +962,15 @@ def process_storages(source_db, target_db):
             for TechFS in TechnologyFromStorage: 
                 if TechFS["entity_byname"][1] == technology["entity_byname"][0] and TechFS["entity_byname"][0] == rs["entity_byname"][0] and TechFS["entity_byname"][2] == rs["entity_byname"][1]:
                     fromS = True
+                    unit_name = f'{TechFS["entity_byname"][0]+"__"+TechFS["entity_byname"][1]}'
+                    entity_byname = (rs["entity_byname"][0] + "__" + rs["entity_byname"][1], unit_name)
+                    ines_transform.assert_success(target_db.add_entity_item(entity_class_name='node__to_unit', entity_byname=entity_byname), warn=True)
             for TechTS in TechnologyToStorage: 
                 if TechTS["entity_byname"][1] == technology["entity_byname"][0] and TechTS["entity_byname"][0] == rs["entity_byname"][0] and TechTS["entity_byname"][2] == rs["entity_byname"][1]:
                     toS = True
-            unit_name = f'{TechFS["entity_byname"][0]+"__"+TechFS["entity_byname"][1]}'
-            
+                    unit_name = f'{TechTS["entity_byname"][0]+"__"+TechTS["entity_byname"][1]}'
+                    entity_byname = (unit_name, rs["entity_byname"][0] + "__" + rs["entity_byname"][1])
+                    ines_transform.assert_success(target_db.add_entity_item(entity_class_name='unit__to_node', entity_byname=entity_byname), warn=True)
             if fromS and toS:
                 unit_conversion_method = "two_way_linear"
                 p_value, p_type = api.to_database(unit_conversion_method)
@@ -963,15 +980,6 @@ def process_storages(source_db, target_db):
                                                                     parameter_definition_name="conversion_method",
                                                                     type=p_type,
                                                                     value=p_value)   
-            if fromS:
-                # add node_toUnit relationship
-                entity_byname = (rs["entity_byname"][0] + "__" + rs["entity_byname"][1], unit_name)
-                ines_transform.assert_success(target_db.add_entity_item(entity_class_name='node__to_unit', entity_byname=entity_byname), warn=True)
-            if toS:
-                # add unit_toNode relationship
-                entity_byname = (unit_name, rs["entity_byname"][0] + "__" + rs["entity_byname"][1])
-                ines_transform.assert_success(target_db.add_entity_item(entity_class_name='unit__to_node', entity_byname=entity_byname), warn=True)
-    
         for param in ResidualStorageCapacity:
             if param["entity_byname"] == rs["entity_byname"]:
                 alt_ent_class = (param["alternative_name"], (param["entity_byname"][0]+"__"+param["entity_byname"][1],), "node")
@@ -1067,44 +1075,84 @@ def process_emissions(source_db, target_db):
     ModelPeriodExogenousEmission = source_db.get_parameter_value_items(entity_class_name="REGION__EMISSION",parameter_definition_name="ModelPeriodExogenousEmission")
     ModelPeriodEmissionLimit = source_db.get_parameter_value_items(entity_class_name="REGION__EMISSION",parameter_definition_name="ModelPeriodEmissionLimit")
 
-    output_act_ratios = source_db.get_parameter_value_items(entity_class_name="REGION__TECHNOLOGY__FUEL", parameter_definition_name="OutputActivityRatio")
+    fuels = source_db.get_entity_items(entity_class_name="REGION__FUEL") + source_db.get_entity_items(entity_class_name="REGION__COMMODITY")
+    input_act_ratios = source_db.get_parameter_value_items(entity_class_name="REGION__TECHNOLOGY__FUEL", parameter_definition_name="InputActivityRatio") + \
+                        source_db.get_parameter_value_items(entity_class_name="REGION__TECHNOLOGY__COMMODITY", parameter_definition_name="InputActivityRatio")
+    output_act_ratios = source_db.get_parameter_value_items(entity_class_name="REGION__TECHNOLOGY__FUEL", parameter_definition_name="OutputActivityRatio") + \
+                        source_db.get_parameter_value_items(entity_class_name="REGION__TECHNOLOGY__COMMODITY", parameter_definition_name="OutputActivityRatio")
 
-    for param in EmissionActivityRatio:
-        param_map = api.from_database(param["value"], param["type"])
-        if isinstance(param_map, api.Map):
-            print("INES supports only constant emission rates, taking the first value of the map")
-            if isinstance(param_map.values[0], api.Map):
-                param_map = param_map.values[0].values[0]
-            else:
-                param_map = param_map.values[0]
-        
-        #check if co2 or not
-        if any(x in param["entity_byname"][2] for x in ["CO2", "co2", "C02"]):
-            #add commodity node
-            param_name = "co2_content"
-            for oa_ratio in output_act_ratios:
-                if oa_ratio["entity_byname"][0] == param["entity_byname"][0] and oa_ratio["entity_byname"][1] == param["entity_byname"][1]:
-                    oa_ratio_val = oa_ratio["parsed_value"].values[0].values[0]
-                    node_name = f'{oa_ratio["entity_byname"][1]}_CO2_commodity'
-                    target_db = add_entity_and_entity_alternative(target_db, 'node', (node_name,), param["alternative_name"])
-                    entity_byname = (node_name, oa_ratio["entity_byname"][0] + "__" + oa_ratio["entity_byname"][1],)
-                    ines_transform.assert_success(target_db.add_entity_item(entity_class_name='node__to_unit', entity_byname=entity_byname), warn=True)
-                    alt_ent_class = (param["alternative_name"], (node_name,), "node")
-                    target_db = ines_transform.add_item_to_DB(target_db, param_name, alt_ent_class, param_map*oa_ratio_val)
-                    target_db = ines_transform.add_item_to_DB(target_db, "node_type", alt_ent_class, "commodity")
-        else:
-            if any(x in param["entity_byname"][2] for x in ["NOX", "nox"]):
-                param_name = "nox_emission_rate"
-            elif any(x in param["entity_byname"][2] for x in ["SO2", "so2", "S02"]):
-                param_name = "so2_emission_rate"
-            else:
-                continue
-            for oa_ratio in output_act_ratios:
+    #CO2 is different in INES...
+    #It is placed as co2_content of the fuel, instead of being an emission rate linked to the technology, 
+    #and it is calculated based on the input activity ratios and the emission activity ratios, instead of being directly defined as an emission activity ratio.
+    #Osemosys allows defining multiple emission activity ratios for the same technology, with different emissions and they can vary per period
+    for fuel in fuels:
+        rate_co2 = dict()
+        for ia_ratio in input_act_ratios:
+            if ia_ratio["entity_byname"][0] == fuel["entity_byname"][0] and ia_ratio["entity_byname"][2] == fuel["entity_byname"][1]:
+                for param in EmissionActivityRatio:
+                    param_map = api.from_database(param["value"], param["type"])
+                    if isinstance(param_map, api.Map):
+                        print("INES supports only constant emission rates, taking the first value of the map")
+                        if isinstance(param_map.values[0], api.Map):
+                            emission_value = param_map.values[0].values[0]
+                        else:
+                            emission_value = param_map.values[0]
+
+                    if any(x in param["entity_byname"][2] for x in ["CO2", "co2", "C02"]):
+                        for ia_val in ia_ratio["parsed_value"].values[0].values:
+                            if ia_val > 0:
+                                rate_co2[f'{param["entity_byname"][1]}_{param["entity_byname"][2]}'] = emission_value / ia_val
+                                break
+        if rate_co2:
+            rate_co2 = np.mean(list(rate_co2.values()))
+            unit_alternative = source_db.get_entity_alternative_items(entity_class_name="REGION", entity_name=fuel["entity_byname"][0])
+            alt_unit = unit_alternative[0]["alternative_name"]
+            
+            alt_ent_class_co2 = (alt_unit, (fuel["entity_byname"][0] + "__" + fuel["entity_byname"][1],), "node")
+            target_db = ines_transform.add_item_to_DB(target_db, "co2_content", alt_ent_class_co2, rate_co2)
+            p_value, p_type = api.to_database("commodity")
+            added, updated, error = target_db.add_update_parameter_value_item(entity_class_name="node",
+                                                                    entity_byname=(fuel["entity_byname"][0] + "__" + fuel["entity_byname"][1],),
+                                                                    alternative_name=alt_unit,
+                                                                    parameter_definition_name="node_type",
+                                                                    value=p_value,
+                                                                    type=p_type)
+
+    for oa_ratio in output_act_ratios:
+        rate_nox = 0
+        rate_so2 = 0
+        add_nox_entities = False
+        add_so2_entities = False
+        for param in EmissionActivityRatio:
+            param_map = api.from_database(param["value"], param["type"])
+            if isinstance(param_map, api.Map):
+                print("INES supports only constant emission rates, taking the first value of the map")
+                if isinstance(param_map.values[0], api.Map):
+                    emission_value = param_map.values[0].values[0]
+                else:
+                    emission_value = param_map.values[0]
+            
+            #check if co2 or not
+            if not any(x in param["entity_byname"][2] for x in ["CO2", "co2", "C02"]):
                 if oa_ratio["entity_byname"][0] == param["entity_byname"][0] and oa_ratio["entity_byname"][1] == param["entity_byname"][1]:
                     oa_ratio_val = oa_ratio["parsed_value"].values[0].values[0]
                     entity_byname = (oa_ratio["entity_byname"][0] + "__" + oa_ratio["entity_byname"][1], oa_ratio["entity_byname"][0] + "__" + oa_ratio["entity_byname"][2])
-                    alt_ent_class = (param["alternative_name"], entity_byname, "unit__to_node")
-                    target_db = ines_transform.add_item_to_DB(target_db, param_name, alt_ent_class, param_map*oa_ratio_val)
+                    if any(x in param["entity_byname"][2] for x in ["NOX", "nox"]):
+                        alt_ent_class_nox = (param["alternative_name"], entity_byname, "unit__to_node")
+                        rate_nox += emission_value*oa_ratio_val
+                        add_nox_entities = True
+                    elif any(x in param["entity_byname"][2] for x in ["SO2", "so2", "S02"]):
+                        alt_ent_class_so2 = (param["alternative_name"], entity_byname, "unit__to_node")
+                        rate_so2 += emission_value*oa_ratio_val
+                        add_so2_entities = True
+                    else:
+                        continue
+        if add_nox_entities:
+            #alt_ent_class_nox = (param["alternative_name"], oa_ratio["entity_byname"], "unit__to_node")
+            target_db = ines_transform.add_item_to_DB(target_db, "nox_emission_rate", alt_ent_class_nox, rate_nox)
+        if add_so2_entities:
+            #alt_ent_class_so2 = (param["alternative_name"], oa_ratio["entity_byname"], "unit__to_node")
+            target_db = ines_transform.add_item_to_DB(target_db, "so2_emission_rate", alt_ent_class_so2, rate_so2)
 
     for param in EmissionsPenalty:
         if any(x in param["entity_byname"][1] for x in ["CO2", "co2", "C02"]):
@@ -1165,11 +1213,15 @@ def process_RE_min_constraint(source_db, target_db):
     #this constraint is presented as the minimum production of demand, not of all production. 
     #They are not exactly the same constraint, but on a system without slacks, they should be the same.
     RETagTechnology = source_db.get_parameter_value_items(entity_class_name="REGION__TECHNOLOGY", parameter_definition_name="RETagTechnology")
-    RETagFuel = source_db.get_parameter_value_items(entity_class_name="REGION__FUEL", parameter_definition_name="RETagFuel")
+    RETagFuel = source_db.get_parameter_value_items(entity_class_name="REGION__FUEL", parameter_definition_name="RETagFuel") + \
+                source_db.get_parameter_value_items(entity_class_name="REGION__COMMODITY", parameter_definition_name="RETagFuel")
     REMinProductionTarget = source_db.get_parameter_value_items(entity_class_name="REGION", parameter_definition_name="REMinProductionTarget")
-    oa_ratio = source_db.get_parameter_value_items(entity_class_name="REGION__TECHNOLOGY__FUEL", parameter_definition_name="OutputActivityRatio")
-    SpecifiedAnnualDemand = source_db.get_parameter_value_items(entity_class_name="REGION__FUEL", parameter_definition_name="SpecifiedAnnualDemand")
-    AccumulatedAnnualDemand = source_db.get_parameter_value_items(entity_class_name="REGION__FUEL", parameter_definition_name="AccumulatedAnnualDemand")
+    oa_ratio = source_db.get_parameter_value_items(entity_class_name="REGION__TECHNOLOGY__FUEL", parameter_definition_name="OutputActivityRatio") + \
+                source_db.get_parameter_value_items(entity_class_name="REGION__TECHNOLOGY__COMMODITY", parameter_definition_name="OutputActivityRatio")
+    SpecifiedAnnualDemand = source_db.get_parameter_value_items(entity_class_name="REGION__FUEL", parameter_definition_name="SpecifiedAnnualDemand") + \
+                                source_db.get_parameter_value_items(entity_class_name="REGION__COMMODITY", parameter_definition_name="SpecifiedAnnualDemand")
+    AccumulatedAnnualDemand = source_db.get_parameter_value_items(entity_class_name="REGION__FUEL", parameter_definition_name="AccumulatedAnnualDemand") + \
+                                source_db.get_parameter_value_items(entity_class_name="REGION__COMMODITY", parameter_definition_name="AccumulatedAnnualDemand")
 
     for target in REMinProductionTarget:
         set_name = target["entity_byname"][0] + "_RE_target"
@@ -1218,7 +1270,8 @@ def process_activity_constraints(source_db, target_db):
     TotalTechnologyAnnualActivityUpperLimit = source_db.get_parameter_value_items(entity_class_name="REGION__TECHNOLOGY", parameter_definition_name="TotalTechnologyAnnualActivityUpperLimit")
     TotalTechnologyModelPeriodActivityLowerLimit = source_db.get_parameter_value_items(entity_class_name="REGION__TECHNOLOGY", parameter_definition_name="TotalTechnologyModelPeriodActivityLowerLimit")
     TotalTechnologyModelPeriodActivityUpperLimit = source_db.get_parameter_value_items(entity_class_name="REGION__TECHNOLOGY", parameter_definition_name="TotalTechnologyModelPeriodActivityUpperLimit")
-    oa_ratio = source_db.get_parameter_value_items(entity_class_name="REGION__TECHNOLOGY__FUEL", parameter_definition_name="OutputActivityRatio")
+    oa_ratio = source_db.get_parameter_value_items(entity_class_name="REGION__TECHNOLOGY__FUEL", parameter_definition_name="OutputActivityRatio") + \
+                source_db.get_parameter_value_items(entity_class_name="REGION__TECHNOLOGY__COMMODITY", parameter_definition_name="OutputActivityRatio")
     
     for unit_source in source_db.get_entity_items(entity_class_name="REGION__TECHNOLOGY"):
         # Get the CapacitytoActivityRatio, the activity is energy in year, flow is power
@@ -1323,18 +1376,28 @@ def process_activity_constraints(source_db, target_db):
     return target_db
 
 def process_node_types(source_db, target_db):
-    nodes = source_db.get_entity_items(entity_class_name="REGION__FUEL")
+    nodes = source_db.get_entity_items(entity_class_name="REGION__FUEL") + source_db.get_entity_items(entity_class_name="REGION__COMMODITY")
     alts = source_db.get_alternative_items()
     for node in nodes:
         for alt in alts:
-            aa_demand = source_db.get_parameter_value_item(entity_class_name="REGION__FUEL",
+            aa_demand_1 = source_db.get_parameter_value_item(entity_class_name="REGION__FUEL",
                                                            entity_byname=node["entity_byname"],
                                                            alternative_name=alt["name"],
                                                            parameter_definition_name="AccumulatedAnnualDemand")
-            sp_demand = source_db.get_parameter_value_item(entity_class_name="REGION__FUEL",
+            aa_demand_2 = source_db.get_parameter_value_item(entity_class_name="REGION__COMMODITY",
+                                                           entity_byname=node["entity_byname"],
+                                                           alternative_name=alt["name"],
+                                                           parameter_definition_name="AccumulatedAnnualDemand")
+            sp_demand_1 = source_db.get_parameter_value_item(entity_class_name="REGION__FUEL",
                                                            entity_byname=node["entity_byname"],
                                                            alternative_name=alt["name"],
                                                            parameter_definition_name="SpecifiedDemandProfile")
+            sp_demand_2 = source_db.get_parameter_value_item(entity_class_name="REGION__COMMODITY",
+                                                           entity_byname=node["entity_byname"],
+                                                           alternative_name=alt["name"],
+                                                           parameter_definition_name="SpecifiedDemandProfile")
+            aa_demand = aa_demand_1 if aa_demand_1 else aa_demand_2
+            sp_demand = sp_demand_1 if sp_demand_1 else sp_demand_2
             if aa_demand and not sp_demand:
                 p_value, p_type = api.to_database("balance_within_period")
                 added, updated, error = target_db.add_update_parameter_value_item(entity_class_name="node",
@@ -1347,20 +1410,13 @@ def process_node_types(source_db, target_db):
                     exit("Failed to add node_type balance_within_period on nodes with AccumulatedAnnualDemand: " + error)
     try:
         target_db.commit_session("Added node_type balance_within_period to nodes with AccumulatedAnnualDemand")
-    except:
-        print("Failed to commit node_type balance_within_period on nodes with AccumulatedAnnualDemand")
+    except DBAPIError as e:
+        print("Failed to commit node_type balance_within_period on nodes with AccumulatedAnnualDemand", e)
+    except NothingToCommit:
+        print("No node types to assingn, skipping commit")
     return target_db
 
-##Check parameters:
-#Done:
-# Emission
-# reMin
-# activity constraints
-# Performance -activity
-# Costs
-# Demand
-# Storage - StorageMaxChargeRate, when two way technology. Consider the possibility of splitting that unit
-# Capacity constraints
+
 
 ### Mode of operation transformation is still missing### 
 ### Reserves are not implemented ###
@@ -1396,7 +1452,7 @@ def get_parameter_values_with_default(source_db, source_entity_class, source_par
             parameter_definition_name=source_param,
         )
 
-    if use_default:
+    if use_default and param_def_item and param_def_item["default_value"]:
         if ignore_default_value_of != api.from_database(param_def_item["default_value"], param_def_item["default_type"]):
             entities_with_params = {tuple(p["entity_byname"]) for p in params}
             for entity in entities:

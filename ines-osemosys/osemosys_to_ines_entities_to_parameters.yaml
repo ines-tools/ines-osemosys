@@ -5,6 +5,9 @@
 REGION__FUEL: 
   node: 
     node_type: ["new_value", "balance", [[1, 2]]]
+REGION__COMMODITY: 
+  node: 
+    node_type: ["new_value", "balance", [[1, 2]]]
 REGION__STORAGE: 
   node: 
     node_type: ["new_value", "storage", [[1, 2]]]
