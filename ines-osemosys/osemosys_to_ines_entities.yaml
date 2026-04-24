@@ -13,7 +13,13 @@ YEAR: period
 REGION__FUEL: 
   - node: [[1, 2]]
   - set__node: [[1], [1, 2]]
+REGION__COMMODITY:
+  - node: [[1, 2]]
+  - set__node: [[1], [1, 2]]
 REGION__REGION__FUEL:
+  - link: [[1, 3, 2]]
+  - node__link__node: [[1, 3], [1, 3, 2], [2, 3]]
+REGION__REGION__COMMODITY:
   - link: [[1, 3, 2]]
   - node__link__node: [[1, 3], [1, 3, 2], [2, 3]]
 REGION__STORAGE:
@@ -23,6 +29,9 @@ REGION__TECHNOLOGY:
   - unit: [[1, 2]]
   - set__unit: [[1], [1, 2]]
 REGION__TECHNOLOGY__FUEL:
+  - unit__to_node: [[1, 2], [1, 3], OutputActivityRatio]
+  - node__to_unit: [[1, 3], [1, 2], InputActivityRatio]
+REGION__TECHNOLOGY__COMMODITY:
   - unit__to_node: [[1, 2], [1, 3], OutputActivityRatio]
   - node__to_unit: [[1, 3], [1, 2], InputActivityRatio]
 REGION__TECHNOLOGY__STORAGE:
