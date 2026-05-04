@@ -934,6 +934,9 @@ def process_demands(source_db, target_db, datetime_indexes):
                     param_map.values = [x * demand_unit_factor  for x in param_map.values]
                     target_db = ines_transform.add_item_to_DB(target_db, "flow_annual", alt_ent_class, param_map)
                 target_db = ines_transform.add_item_to_DB(target_db, "flow_scaling_method", alt_ent_class, "scale_to_annual")
+                # creating a profile of ones, since the flow_scaling_method is set to scale_to_annual, the profile needs to exist, even if it's just ones
+                profile_data = api.Map(indexes=datetime_indexes, values=[1.0] * len(datetime_indexes), index_name="time")
+                target_db = ines_transform.add_item_to_DB(target_db, "flow_profile", alt_ent_class, profile_data)
         
     return target_db
 
